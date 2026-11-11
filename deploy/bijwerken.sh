@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Werdens Monitor bijwerken naar de nieuwste versie op main.
+#
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/bijwerken.sh)"
+#
+# Anders dan de installer doet dit script niets met Node, gebruikers of systemd-
+# bestanden: het vervangt alleen de programma-bestanden en herstart de dienst.
+# De database in data/ blijft staan. Werkt ook zonder git (tarball-terugval).
+#
+# Variabelen:
+#   MAP    installatiemap, standaard /opt/werdens-monitor
+#   DIENST naam van de systemd-dienst, standaard werdens-monitor
+set -euo pipefail
+
+REPO="Theberas04/werdens-monitor"
+TAK="main"
+MAP="${MAP:-/opt/werdens-monitor}"
+DIENST="${DIENST:-werdens-monitor}"
+
+zeg() { echo "→ $*"; }
+stop() { echo "Fout: $*" >&2; exit 1; }
+
+[ -d "$MAP" ] || stop "$MAP bestaat niet; draai eerst de installatie-one-liner."
+[ -f "$MAP/server.js" ] || stop "$MAP lijkt geen Werdens Monitor-installatie."
+if [ "${DROOG:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then stop "draai dit als root (of met sudo)."; fi
+
+OUD="$(node -p "require('$MAP/package.json').version" 2>/dev/null || echo '?')"
+zeg "Bijwerken in $MAP (nu versie $OUD)"
+
+cd "$MAP"
+mkdir -p data
+
+if [ -d "$MAP/.git" ] && command -v git >/dev/null 2>&1; then
+  zeg "Nieuwste versie ophalen via git"
+  git fetch --quiet origin "$TAK" || stop "git fetch mislukt (repo niet bereikbaar?)"
+  git reset --hard --quiet "origin/$TAK" || stop "git reset mislukt"
+  NIEUW_SHA="$(git rev-parse HEAD)"
+else
+  zeg "Geen git-installatie; tarball van GitHub gebruiken"
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$TAK" -o "$TMP/bron.tar.gz" \
+    || stop "downloaden mislukt"
+  [ "$(stat -c%s "$TMP/bron.tar.gz")" -gt 10000 ] || stop "download is te klein"
+  tar -xzf "$TMP/bron.tar.gz" -C "$TMP" || stop "uitpakken mislukt"
+  BRON="$(find "$TMP" -maxdepth 1 -type d -name '*-*' | head -1)"
+  [ -f "$BRON/server.js" ] || stop "de tarball bevat geen server.js"
+  node --check "$BRON/server.js" || stop "de nieuwe server.js heeft een syntaxfout; niets vervangen"
+  for item in "$BRON"/* "$BRON"/.[!.]*; do
+    [ -e "$item" ] || continue
+    naam="$(basename "$item")"
+    case "$naam" in
+      data|.git|.env) continue ;;
+    esac
+    cp -a "$item" "$MAP/" || stop "kopiëren van $naam mislukt"
+  done
+  # Zonder git weten we de commit niet uit de bestanden; vraag hem aan de API.
+  # Zonder sha blijft het dashboard denken dat er een update klaarstaat.
+  NIEUW_SHA="$(curl -fsSL ${GITHUB_TOKEN:+-H "authorization: Bearer $GITHUB_TOKEN"} \
+    "https://api.github.com/repos/$REPO/commits/$TAK" 2>/dev/null \
+    | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]{40}"' | head -1 | grep -oE '[0-9a-f]{40}')"
+fi
+
+NIEUW="$(node -p "require('$MAP/package.json').version" 2>/dev/null || echo '?')"
+if [ -n "${NIEUW_SHA:-}" ]; then
+  printf '{\n  "sha": "%s",\n  "versie": "%s",\n  "geinstalleerd": "%s"\n}\n' \
+    "$NIEUW_SHA" "$NIEUW" "$(date -Is)" > data/.versie.json 2>/dev/null || true
+fi
+
+# De dienst draait als 'werdens'; de bestanden moeten van hem zijn, anders kan
+# hij zich de volgende keer niet zelf bijwerken.
+id -u werdens >/dev/null 2>&1 && chown -R werdens:werdens "$MAP" 2>/dev/null || true
+
+if [ "${DROOG:-0}" = "1" ]; then
+  echo "Droogloop: bestanden bijgewerkt, dienst niet herstart (versie $OUD → $NIEUW)."
+elif systemctl list-unit-files 2>/dev/null | grep -q "^$DIENST.service"; then
+  zeg "Dienst herstarten"
+  systemctl restart "$DIENST"
+  sleep 2
+  if systemctl is-active --quiet "$DIENST"; then
+    echo "Versie $OUD → $NIEUW; dienst draait."
+  else
+    journalctl -u "$DIENST" -n 30 --no-pager
+    stop "de dienst start niet met de nieuwe versie; zie het logboek hierboven"
+  fi
+else
+  echo "Versie $OUD → $NIEUW. Geen systemd-dienst gevonden; start de app zelf opnieuw."
+fi
+
+POORT="$(grep -oP '^PORT=\K[0-9]+' "/etc/$DIENST.env" 2>/dev/null || echo 8080)"
+if [ "${DROOG:-0}" != "1" ] && command -v curl >/dev/null 2>&1; then
+  STATUS="$(curl -fsS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$POORT/healthz" 2>/dev/null || echo '')"
+  echo "Gezondheid: ${STATUS:-geen antwoord}"
+  echo "Adres: http://$(hostname -I | awk '{print $1}'):$POORT"
+fi

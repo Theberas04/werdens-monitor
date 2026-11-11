@@ -113,6 +113,24 @@ de oude versie draaien.
 Dit werkt bij een installatie via het LXC-script of de installer; draai je de app
 los tijdens het ontwikkelen, gebruik dan `git pull`.
 
+Vanuit de terminal bijwerken — bijvoorbeeld als de draaiende versie nog geen
+update-knop heeft. Dit vervangt alleen de programmabestanden en herstart de
+dienst; de database blijft staan:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/bijwerken.sh)"
+```
+
+Staat de app in een LXC, dan vanaf de Proxmox-host:
+
+```bash
+pct exec 120 -- bash -c 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/bijwerken.sh)"'
+```
+
+`MAP` (standaard `/opt/werdens-monitor`) en `DIENST` zijn aan te passen. Zonder
+git-installatie valt het script terug op de tarball van GitHub; `DROOG=1` laat
+alleen zien wat er zou gebeuren.
+
 ## Schermen
 
 ![Servers met CPU, geheugen, schijf en GPU](docs/img/servers-desktop.png)
