@@ -113,8 +113,10 @@ const demoHosts = [
 
 if (!db.prepare('SELECT COUNT(*) n FROM hosts').get().n) {
   for (const h of demoHosts) {
+    // 6 uur interval: de demo-host bestaat niet echt, dus niet meteen herscannen
+    // (dat zou "host neer"-alerts opleveren die de demodata tegenspreken).
     hostZet.run(h.ip, h.naam, h.notitie, nu(), JSON.stringify(h.poorten), JSON.stringify(h.diensten), h.hostnaam,
-      1, 300, h.ping, h.tls, h.tls ? new Date(Date.now() + h.tls * 86400e3).toISOString() : '', nu(), 1, '');
+      1, 21600, h.ping, h.tls, h.tls ? new Date(Date.now() + h.tls * 86400e3).toISOString() : '', nu(), 1, '');
     for (let i = 23; i >= 0; i--) {
       const op = new Date(Date.now() - i * 3600e3).toISOString();
       hcZet.run(h.ip, op, 1, h.poorten.length, h.ping + (i % 3), h.tls, '');

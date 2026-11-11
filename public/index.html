@@ -280,14 +280,14 @@ details.uitklap .binnen{padding:16px}
   --bg:#f4f7fb; --pane:#ffffff; --pane2:#f7fafd; --pane3:#eef3fa;
   --line:#e3eaf4; --line2:#cfdaeb;
   --txt:#0f172a; --muted:#55657f; --muted2:#8296ae;
-  --accent:#1d4ed8; --accent-d:#1e40af; --accent-soft:#e8eefc;
+  --accent:#2ea3f2; --accent-d:#1e73be; --accent-soft:#e8f4fd;
   --accent-2:#0ea5b7;
   --ok:#059669; --ok-soft:#e6f6ef;
   --amber:#b45309; --amber-soft:#fdf1e2;
   --red:#dc2626; --red-soft:#fdeaea;
-  --blue:#1d4ed8; --blue-soft:#e8eefc;
+  --blue:#1e73be; --blue-soft:#e8f4fd;
   --paars:#7c3aed;
-  --merk:linear-gradient(118deg,#5ff0e8 0%,#38bdf8 45%,#4a4cf8 100%);
+  --merk:linear-gradient(118deg,#5ff0e8 0%,#2ea3f2 55%,#1e73be 100%);
   --r:16px; --r-klein:10px; --hoogte:40px; --hoogte-klein:32px;
   --schaduw:0 1px 2px rgba(15,23,42,.05),0 12px 28px -20px rgba(15,23,42,.3);
   --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -361,7 +361,7 @@ p.leeg{color:var(--muted2)}
 .knop:hover{background:var(--pane2);border-color:#b6c7dd}
 .knop.primair{background:var(--merk);border-color:transparent;color:#fff;font-weight:700;
   box-shadow:0 10px 20px -14px rgba(74,76,248,.95)}
-.knop.primair:hover{background:linear-gradient(118deg,#4fe6dd 0%,#38bdf8 45%,#4343f0 100%);filter:brightness(1.02)}
+.knop.primair:hover{background:linear-gradient(118deg,#4fe6dd 0%,#2b98e6 55%,#1b6cb4 100%);filter:brightness(1.02)}
 .knop.stil{background:transparent;border-color:transparent;color:var(--muted)}
 .knop.stil:hover{background:var(--pane3);color:var(--txt)}
 .knop.gevaar{background:var(--red-soft);border-color:#f3c9c9;color:var(--red)}
@@ -690,7 +690,7 @@ async function laadOverzicht() {
       + '<div class="kaart"><div class="kaart-kop"><h2>Open tickets</h2><div class="rechts"><button class="knop klein" data-ga="tickets">Nieuw</button></div></div><div>' + ticketsHtml + '</div></div>'
       + '</div>'
       + (d.alerts && d.alerts.length ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts"><button class="knop klein" data-ga="hosts">Alle IP-adressen</button></div></div><div class="kaart-body alerts">'
-        + d.alerts.map((a) => '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht) + '</div><span class="tijd">' + geleden(a.op) + '</span></div>').join('') + '</div></div>' : '')
+        + d.alerts.slice(0, 4).map((a) => '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht) + '</div><span class="tijd">' + geleden(a.op) + '</span></div>').join('') + '</div></div>' : '')
       + '<div class="raster twee" style="margin-bottom:14px">'
       + '<div class="kaart"><div class="kaart-kop"><h2>IP-adressen</h2><div class="rechts"><button class="knop klein" data-ga="hosts">Beheren</button></div></div><div class="rijen">' + hostRijen + '</div></div>'
       + '<div class="kaart"><div class="kaart-kop"><h2>Laatste gebeurtenissen</h2></div><div class="kaart-body">' + gebeurtenissen + '</div></div>'
@@ -1148,7 +1148,7 @@ function renderHosts(d) {
 
   const alerts = (d.alerts && d.alerts.length)
     ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts"><button class="knop klein" data-ga="hosts">Naar IP-adressen</button></div></div>'
-      + '<div class="kaart-body alerts">' + d.alerts.map((a) =>
+      + '<div class="kaart-body alerts">' + d.alerts.slice(0, 6).map((a) =>
         '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht)
         + '</div><span class="tijd">' + geleden(a.op) + '</span></div>').join('') + '</div></div>'
     : '';
