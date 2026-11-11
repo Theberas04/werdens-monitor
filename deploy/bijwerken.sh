@@ -16,6 +16,7 @@ REPO="Theberas04/werdens-monitor"
 TAK="main"
 MAP="${MAP:-/opt/werdens-monitor}"
 DIENST="${DIENST:-werdens-monitor}"
+UNIT="${UNIT:-/etc/systemd/system/$DIENST.service}"
 
 zeg() { echo "→ $*"; }
 stop() { echo "Fout: $*" >&2; exit 1; }
@@ -70,6 +71,28 @@ fi
 # De dienst draait als 'werdens'; de bestanden moeten van hem zijn, anders kan
 # hij zich de volgende keer niet zelf bijwerken.
 id -u werdens >/dev/null 2>&1 && chown -R werdens:werdens "$MAP" 2>/dev/null || true
+
+# Een installatie van vóór 1.3 gaf de dienst alleen schrijfrechten op $MAP/data;
+# dan stopt een update uit het dashboard met EROFS. Repareer de unit meteen.
+if [ -f "$UNIT" ]; then
+  if grep -q '^ReadWritePaths=' "$UNIT" && ! grep -qx "ReadWritePaths=$MAP" "$UNIT"; then
+    zeg "Systemd-unit repareren: schrijfrechten op $MAP"
+    if [ "$DROOG" = "1" ]; then
+      echo "   [droog] ReadWritePaths=$MAP in $UNIT"
+    else
+      sed -i "s|^ReadWritePaths=.*|ReadWritePaths=$MAP|" "$UNIT"
+      systemctl daemon-reload
+    fi
+  elif grep -q '^ProtectSystem=strict' "$UNIT" && ! grep -q '^ReadWritePaths=' "$UNIT"; then
+    zeg "Systemd-unit repareren: ReadWritePaths toevoegen"
+    if [ "$DROOG" = "1" ]; then
+      echo "   [droog] ReadWritePaths=$MAP toevoegen aan $UNIT"
+    else
+      sed -i "/^ProtectSystem=strict/a ReadWritePaths=$MAP" "$UNIT"
+      systemctl daemon-reload
+    fi
+  fi
+fi
 
 if [ "${DROOG:-0}" = "1" ]; then
   echo "Droogloop: bestanden bijgewerkt, dienst niet herstart (versie $OUD → $NIEUW)."

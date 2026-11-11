@@ -118,6 +118,11 @@ de oude versie draaien.
 Dit werkt bij een installatie via het LXC-script of de installer; draai je de app
 los tijdens het ontwikkelen, gebruik dan `git pull`.
 
+Krijg je bij het bijwerken **`EROFS, Read-only file system`**, dan is de
+systemd-unit van een oude installatie nog ingesteld op alleen `data/` (van vóór
+1.3). Draai het bijwerkscript hieronder één keer; dat zet `ReadWritePaths` op de
+hele installatiemap en herstart de dienst. Daarna werkt de knop in het dashboard.
+
 Vanuit de terminal bijwerken — bijvoorbeeld als de draaiende versie nog geen
 update-knop heeft. Dit vervangt alleen de programmabestanden en herstart de
 dienst; de database blijft staan:
