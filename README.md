@@ -210,8 +210,36 @@ het token gaat als `PVEAPIToken=gebruiker@realm!naam=secret` mee.
 Let op: poort 8006 moet vanaf de monitor bereikbaar zijn. Staat de monitor in een
 LXC op dezelfde host, gebruik dan het LAN-adres van de host (niet `localhost`).
 
+Een apparaat in onderhoud zet je op zijn detailpagina met de knop **Onderhoud**:
+je kiest een eindtijd en een reden. Tijdens het venster blijft de monitor meten
+— zodat de status klopt als je klaar bent — maar er gaan geen meldingen naar
+Slack. Het venster staat in de lijst met een blauw *onderhoud*-label en je stopt
+het met **Stoppen** op de detailpagina. Zo geldt hetzelfde gedrag als bij een
+IP-adres.
+
 Wachtwoorden en sleutels staan in de database, niet in de repo; de API geeft ze
 nooit terug (wel of er een geheim is ingesteld).
+
+## Wachtwoord vergeten
+
+Het beheerderswachtwoord staat als scrypt-afdruk in de database. Ben je het kwijt,
+draai dan vanaf de Proxmox-console in de LXC (of als root op de machine):
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/reset-wachtwoord.sh)"
+```
+
+Het script wist de afdruk en alle sessies en herstart de dienst; bij de volgende
+start maakt de app een nieuw wachtwoord en schrijft dat naar
+`data/admin-wachtwoord.txt`. Wil je zelf een wachtwoord kiezen:
+
+```bash
+NIEUW=minstens8tekens bash -c "$(curl -fsSL .../deploy/reset-wachtwoord.sh)"
+```
+
+`DROOG=1` laat eerst zien wat er zou gebeuren. `MAP` (standaard
+`/opt/werdens-monitor`) en `DIENST` zijn aan te passen. Werkt de dienst niet via
+systemd, start de app dan zelf opnieuw en kijk in `data/admin-wachtwoord.txt`.
 
 ## Schermen
 

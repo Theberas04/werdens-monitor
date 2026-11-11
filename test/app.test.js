@@ -502,6 +502,22 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     assert.equal(ververs.status, 200);
     assert.equal(ververs.data.apparaat.status, 'ok');
 
+    // Onderhoudsvenster op een apparaat: de knop in de UI zet dit venster, en
+    // tijdens het venster gaan er geen meldingen meer naar Slack.
+    const tot = new Date(Date.now() + 3600e3).toISOString();
+    const ond = await alsJson('/api/apparaten/' + pve.data.apparaat.id + '/onderhoud', { method: 'POST', lichaam: { tot, reden: 'test' } });
+    assert.equal(ond.status, 201, 'onderhoudsvenster op een apparaat aanmaken');
+    assert.equal(ond.data.onderhoud[0].ip, 'apparaat:Proxmox thuis');
+    const metOnderhoud = await alsJson('/api/apparaten/' + pve.data.apparaat.id);
+    assert.equal(metOnderhoud.data.apparaat.in_onderhoud, true, 'apparaat staat in onderhoud');
+    assert.ok(metOnderhoud.data.apparaat.onderhoud.some((o) => o.id === ond.data.onderhoud[0].id), 'venster komt mee in het detail');
+    const lijstOnd = await alsJson('/api/apparaten');
+    assert.equal(lijstOnd.data.apparaten.find((a) => a.id === pve.data.apparaat.id).in_onderhoud, true, 'lijst toont onderhoud');
+    const ondWeg = await alsJson('/api/apparaten/' + pve.data.apparaat.id + '/onderhoud/' + ond.data.onderhoud[0].id, { method: 'DELETE' });
+    assert.equal(ondWeg.status, 200, 'onderhoudsvenster stoppen');
+    const naOnderhoud = await alsJson('/api/apparaten/' + pve.data.apparaat.id);
+    assert.equal(naOnderhoud.data.apparaat.in_onderhoud, false, 'na stoppen is het venster weg');
+
     const weg = await alsJson('/api/apparaten/' + unifi.data.apparaat.id, { method: 'DELETE' });
     assert.equal(weg.status, 200);
     const na = await alsJson('/api/apparaten/' + unifi.data.apparaat.id);

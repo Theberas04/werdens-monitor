@@ -726,7 +726,7 @@ const apparaten = {
       id: a.id, naam: a.naam, soort: a.soort, url: a.url, gebruiker: a.gebruiker || '',
       heeft_geheim: !!a.geheim, actief: !!a.actief, status: apparaten.status(a),
       laatste: a.laatste || '', fout: a.fout || '', data: parseJson(a.data, null),
-      aangemaakt: a.aangemaakt || '',
+      aangemaakt: a.aangemaakt || '', in_onderhoud: inOnderhoud(apparaten.sleutel(a)),
     };
     if (uitgebreid) uit.geschiedenis = apparaten.geschiedenis(a.id);
     return uit;
@@ -749,10 +749,13 @@ const apparaten = {
     const was = a.fout ? 'fout' : (a.laatste ? 'ok' : 'onbekend');
     apparaten.bewaar(id, uit.status, uit.data, uit.fout);
     const sleutel = apparaten.sleutel(a);
-    if (uit.status === 'fout' && was === 'ok') {
+    // Tijdens onderhoud meten we wel door (zodat de status klopt), maar maken we
+    // geen nieuwe meldingen aan. Zo blijft het stil zonder dat de gegevens verouderen.
+    const stil = inOnderhoud(sleutel);
+    if (!stil && uit.status === 'fout' && was === 'ok') {
       meld(sleutel, 'apparaat neer', a.naam + ' is niet bereikbaar: ' + (uit.fout || 'onbekende fout'));
     }
-    if (uit.status === 'ok' && was === 'fout') {
+    if (!stil && uit.status === 'ok' && was === 'fout') {
       meld(sleutel, 'apparaat online', a.naam + ' is weer bereikbaar');
       losOp(sleutel, 'apparaat neer');
     }
@@ -1408,7 +1411,9 @@ async function verwerk(req, res) {
     const apparaat = apparaten.een(delen[2]);
     if (!apparaat) return fout(res, 404, 'Dit apparaat staat niet in de lijst');
     if (methode === 'GET' && !delen[3]) {
-      return json(res, 200, { apparaat: apparaten.beeld(apparaat, true) });
+      const uit = apparaten.beeld(apparaat, true);
+      uit.onderhoud = db.prepare('SELECT * FROM onderhoud WHERE ip=? ORDER BY tot DESC').all(apparaten.sleutel(apparaat));
+      return json(res, 200, { apparaat: uit });
     }
     if (methode === 'PATCH' && !delen[3]) {
       const body = await leesBody(req).catch(() => null);
@@ -1435,6 +1440,24 @@ async function verwerk(req, res) {
     if (methode === 'POST' && delen[3] === 'verversen') {
       const uit = await apparaten.meet(apparaat.id);
       return json(res, 200, { apparaat: uit });
+    }
+    if (methode === 'POST' && delen[3] === 'onderhoud') {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      const key = apparaten.sleutel(apparaat);
+      const van = tekst(body.van, 40) || nu();
+      const tot = tekst(body.tot, 40);
+      if (!tot) return fout(res, 400, 'Eindtijd is verplicht');
+      if (Date.parse(tot) <= Date.parse(van)) return fout(res, 400, 'Eindtijd moet na de begintijd liggen');
+      const reden = tekst(body.reden, 200) || 'Onderhoud';
+      db.prepare('INSERT INTO onderhoud(ip,van,tot,reden,aangemaakt) VALUES(?,?,?,?,?)').run(key, van, tot, reden, nu());
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'onderhoud', key, 'Onderhoud op ' + apparaat.naam + ' tot ' + tot + (reden ? ': ' + reden : ''));
+      return json(res, 201, { onderhoud: db.prepare('SELECT * FROM onderhoud WHERE ip=? ORDER BY tot DESC').all(key) });
+    }
+    if (methode === 'DELETE' && delen[3] === 'onderhoud' && delen[4]) {
+      db.prepare('DELETE FROM onderhoud WHERE id=? AND ip=?').run(Number(delen[4]), apparaten.sleutel(apparaat));
+      return json(res, 200, { ok: true });
     }
   }
 

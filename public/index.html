@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.7.0">
+<meta name="version" content="1.7.1">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -2017,6 +2017,7 @@ function apparaatKaart(a) {
   return '<a class="srv" data-apparaat="' + a.id + '" href="#">'
     + '<div class="srv-top"><span class="srv-naam">' + esc(a.naam) + '</span>'
     + '<span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span>'
+    + (a.in_onderhoud ? '<span class="chip blauw">onderhoud</span>' : '')
     + '<span class="chip">' + esc(SOORT_LABEL[a.soort] || a.soort) + '</span></div>'
     + '<div class="srv-host">' + esc(a.url.replace(/^https?:\/\//, '')) + '</div>'
     + '<div class="srv-stat" style="font-size:13px;color:var(--muted)">' + esc(apparaatSamenvatting(a)) + '</div>'
@@ -2102,12 +2103,18 @@ async function laadApparaatDetail(id) {
     beeld.innerHTML =
       '<button class="knop stil klein" data-terug>' + ico.terug + ' Terug</button>'
       + '<div class="kaart" style="margin:12px 0 14px"><div class="kaart-body">'
-      + '<div class="srv-kop"><div class="merkblok"><h2>' + esc(a.naam) + ' <span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span></h2>'
+      + '<div class="srv-kop"><div class="merkblok"><h2>' + esc(a.naam) + ' <span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span>' + (a.in_onderhoud ? ' <span class="chip blauw">onderhoud</span>' : '') + '</h2>'
       + '<div class="srv-sub">' + esc(SOORT_LABEL[a.soort] || a.soort) + ' · ' + esc(a.url) + ' · ' + (a.laatste ? 'gemeten ' + geleden(a.laatste) : 'nog niet gemeten') + '</div></div>'
-      + '<div class="acties"><button class="knop" id="app-ververs">Verversen</button><button class="knop" id="app-wijzig">Wijzigen</button><button class="knop gevaar" id="app-weg">Verwijderen</button></div></div>'
+      + '<div class="acties"><button class="knop" id="app-ververs">Verversen</button><button class="knop" id="app-onderhoud">Onderhoud</button><button class="knop" id="app-wijzig">Wijzigen</button><button class="knop gevaar" id="app-weg">Verwijderen</button></div></div>'
       + (a.fout ? '<p class="fout-tekst" style="margin-top:10px">Laatste fout: ' + esc(a.fout) + '</p>' : '')
       + '</div></div>'
       + '<div class="kaart"><div class="kaart-kop"><h2>Gegevens</h2><span class="chip">' + esc(apparaatSamenvatting(a)) + '</span></div><div class="kaart-body" style="padding:0">' + apparaatDetails(a) + '</div></div>'
+      + ((a.onderhoud && a.onderhoud.filter((o) => new Date(o.tot).getTime() >= Date.now()).length)
+        ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Onderhoud</h2><span class="chip">' + a.onderhoud.filter((o) => new Date(o.tot).getTime() >= Date.now()).length + '</span></div><div class="kaart-body"><div class="alerts">'
+          + a.onderhoud.filter((o) => new Date(o.tot).getTime() >= Date.now()).map((o) =>
+            '<div class="alert"><div class="tekst"><b>Onderhoud</b> tot ' + esc(datum(o.tot)) + (o.reden ? ' — ' + esc(o.reden) : '') + '</div>'
+            + '<button class="knop klein stil" data-app-onderhoud-weg="' + o.id + '">Stoppen</button></div>').join('')
+          + '</div></div></div>' : '')
       + (Array.isArray(data.nodes) && data.nodes.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Nodes</h2><span class="chip">' + data.nodes.length + '</span></div><div class="kaart-body" style="padding:0">'
         + '<table class="srv-tabel"><thead><tr><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th><th>Schijf</th><th>Load</th><th>Uptime</th></tr></thead><tbody>'
         + data.nodes.map((n) => '<tr><td><b>' + esc(n.naam) + '</b></td><td><span class="chip ' + (n.status === 'online' ? 'groen' : 'rood') + '">' + esc(n.status) + '</span></td><td>' + nlGetal(n.cpu_pct) + '%</td><td>' + nlGetal(n.ram_pct) + '%' + (n.ram_totaal_gb ? ' <span class="mono">(' + n.ram_gb + '/' + n.ram_totaal_gb + ' GB)</span>' : '') + '</td><td>' + nlGetal(n.disk_pct) + '%</td><td>' + (n.load ?? '—') + '</td><td>' + (n.uptime_s !== null && n.uptime_s !== undefined ? uptimeTekst(n.uptime_s) : '—') + '</td></tr>').join('')
@@ -2136,6 +2143,22 @@ async function laadApparaatDetail(id) {
       try { await api('/api/apparaten/' + id + '/verversen', { method: 'POST' }); toast('Apparaat bijgewerkt'); laadApparaatDetail(id); }
       catch (e) { toast(e.message, true); }
     });
+    const oh = $('#app-onderhoud');
+    if (oh) oh.addEventListener('click', async () => {
+      const tot = new Date(Date.now() + 2 * 3600e3);
+      const antwoord = prompt('Tot wanneer in onderhoud? (bijv. ' + tot.toLocaleString('nl-NL') + ')', tot.toISOString().slice(0, 16));
+      if (!antwoord) return;
+      try {
+        await api('/api/apparaten/' + id + '/onderhoud', { method: 'POST', lichaam: { tot: new Date(antwoord).toISOString(), reden: 'Handmatig ingesteld' } });
+        toast('Onderhoud ingesteld'); laadApparaatDetail(id);
+      } catch (e) { toast(e.message, true); }
+    });
+    beeld.querySelectorAll('[data-app-onderhoud-weg]').forEach((b) => b.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { await api('/api/apparaten/' + id + '/onderhoud/' + b.dataset.appOnderhoudWeg, { method: 'DELETE' }); laadApparaatDetail(id); }
+      catch (err) { toast(err.message, true); }
+    }));
     $('#app-wijzig').addEventListener('click', () => toonApparaatForm(a));
     $('#app-weg').addEventListener('click', () => {
       bevestig('Apparaat verwijderen', 'Weet je zeker dat je ' + a.naam + ' en alle metingen wilt verwijderen?', async () => {
