@@ -40,6 +40,10 @@ const db = new sqlite3.DatabaseSync(DB_PATH);
 db.exec(`
 CREATE TABLE IF NOT EXISTS instellingen(sleutel TEXT PRIMARY KEY, waarde TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessies(token TEXT PRIMARY KEY, aangemaakt TEXT NOT NULL, verloopt TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS herstelcodes(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, zout TEXT NOT NULL,
+  aangemaakt TEXT NOT NULL, verloopt TEXT NOT NULL, gebruikt INTEGER NOT NULL DEFAULT 0,
+  pogingen INTEGER NOT NULL DEFAULT 0, ip TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sites(
   id INTEGER PRIMARY KEY AUTOINCREMENT, naam TEXT NOT NULL, url TEXT NOT NULL, ip TEXT NOT NULL DEFAULT '',
   repo TEXT NOT NULL DEFAULT '', stats_url TEXT NOT NULL DEFAULT '', interval_s INTEGER NOT NULL DEFAULT 60,
@@ -218,6 +222,25 @@ function wachtwoordKlopt(wachtwoord, afdruk) {
   const berekend = Buffer.from(scrypt(wachtwoord, zout), 'hex');
   const bewaard = Buffer.from(hash, 'hex');
   return berekend.length === bewaard.length && crypto.timingSafeEqual(berekend, bewaard);
+}
+
+// ── herstelcode via Slack ────────────────────────────────────────────────────
+// "Wachtwoord vergeten?" stuurt een code van zes cijfers naar de Slack-webhook.
+// De code staat alleen als afdruk in de database, is eenmalig bruikbaar en
+// verloopt na tien minuten; na vijf foute pogingen is hij verbruikt.
+const HERSTEL_MINUTEN = 10;
+const HERSTEL_POGINGEN = 5;
+const HERSTEL_WACHT_MS = 60 * 1000;      // minstens een minuut tussen twee aanvragen
+const HERSTEL_PER_UUR = 5;               // en hooguit vijf per uur
+const codeAfdruk = (code, zout) => crypto.createHash('sha256').update(String(zout) + ':' + String(code)).digest('hex');
+function veiligGelijk(a, b) {
+  const x = Buffer.from(String(a), 'utf8');
+  const y = Buffer.from(String(b), 'utf8');
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+function bezoekerIp(req) {
+  const doorgegeven = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return (doorgegeven || (req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');
 }
 
 if (!instelling('admin_hash')) {
@@ -1050,6 +1073,81 @@ async function verwerk(req, res) {
       await new Promise((r) => setTimeout(r, 400));
       return fout(res, 401, 'Onjuist wachtwoord');
     }
+    const token = sessies.maak();
+    const koek = `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSIE_UREN * 3600}`;
+    return json(res, 200, { ok: true, naam: instelling('admin_naam', 'tom') }, { 'set-cookie': koek });
+  }
+
+  // ── wachtwoord vergeten: code via Slack ───────────────────────────────────
+  // Twee openbare routes: een code aanvragen (die gaat naar de Slack-webhook)
+  // en met die code een nieuw wachtwoord zetten. Zonder Slack-webhook bestaat
+  // er geen kanaal om de code heen te sturen; dan verwijst de UI naar het
+  // reset-script op de server.
+  if (pad === '/api/wachtwoord/kan' && methode === 'GET') {
+    return json(res, 200, { ok: true, via_slack: slackIngesteld(), naam: instelling('admin_naam', 'tom') });
+  }
+
+  if (pad === '/api/wachtwoord/vergeten' && methode === 'POST') {
+    if (!slackIngesteld()) {
+      return fout(res, 409, 'Slack is niet ingesteld. Gebruik het reset-script op de server: deploy/reset-wachtwoord.sh');
+    }
+    const ip = bezoekerIp(req);
+    const laatste = db.prepare('SELECT aangemaakt FROM herstelcodes ORDER BY id DESC LIMIT 1').get();
+    if (laatste && Date.now() - Date.parse(laatste.aangemaakt) < HERSTEL_WACHT_MS) {
+      const wacht = Math.ceil((HERSTEL_WACHT_MS - (Date.now() - Date.parse(laatste.aangemaakt))) / 1000);
+      return fout(res, 429, 'Er is net al een code verstuurd. Probeer het over ' + wacht + ' seconden opnieuw.');
+    }
+    const uur = db.prepare('SELECT COUNT(*) AS n FROM herstelcodes WHERE aangemaakt > ?')
+      .get(new Date(Date.now() - 3600e3).toISOString());
+    if (uur && uur.n >= HERSTEL_PER_UUR) {
+      return fout(res, 429, 'Te veel aanvragen in het laatste uur. Probeer het later opnieuw.');
+    }
+    const code = String(crypto.randomInt(100000, 1000000));
+    const zout = crypto.randomBytes(16).toString('hex');
+    const afdruk = codeAfdruk(code, zout);
+    const verloopt = new Date(Date.now() + HERSTEL_MINUTEN * 60000).toISOString();
+    db.prepare('INSERT INTO herstelcodes(code,zout,aangemaakt,verloopt,ip) VALUES(?,?,?,?,?)')
+      .run(afdruk, zout, nu(), verloopt, ip);
+    db.prepare('DELETE FROM herstelcodes WHERE verloopt < ? OR gebruikt = 1').run(nu());
+    try {
+      await slack.stuur(instelling('slack_webhook'), {
+        tekst: 'Wachtwoord herstellen — code ' + code + ' (geldig tot ' + new Date(verloopt).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam' }) + ')',
+        blokken: [
+          { type: 'section', text: { type: 'mrkdwn', text: ':lock: *Wachtwoord herstellen*\nGebruik deze code in het dashboard: *' + code + '*\nDe code is ' + HERSTEL_MINUTEN + ' minuten geldig.' } },
+          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Niet zelf aangevraagd? Negeer dit bericht; je wachtwoord blijft dan ongewijzigd.' }] },
+        ],
+      });
+    } catch (e) {
+      db.prepare('DELETE FROM herstelcodes WHERE code=?').run(afdruk);
+      return fout(res, 502, 'De code kon niet via Slack verstuurd worden: ' + e.message);
+    }
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+      .run(nu(), 'beveiliging', ip, 'Herstelcode voor het wachtwoord via Slack aangevraagd');
+    return json(res, 200, { ok: true, geldig_minuten: HERSTEL_MINUTEN, kanaal: 'slack' });
+  }
+
+  if (pad === '/api/wachtwoord/herstellen' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => ({}));
+    const code = String(body.code || '').replace(/\s+/g, '');
+    const wachtwoord = String(body.wachtwoord || '');
+    if (wachtwoord.length < 8) return fout(res, 400, 'Kies een wachtwoord van minstens 8 tekens');
+    if (!/^\d{6}$/.test(code)) return fout(res, 400, 'Vul de zes cijfers uit het Slack-bericht in');
+    const rij = db.prepare('SELECT * FROM herstelcodes WHERE gebruikt = 0 AND verloopt > ? ORDER BY id DESC LIMIT 1').get(nu());
+    if (!rij) return fout(res, 400, 'Geen geldige code meer. Vraag een nieuwe code aan.');
+    if (rij.pogingen >= HERSTEL_POGINGEN) {
+      db.prepare('UPDATE herstelcodes SET gebruikt = 1 WHERE id = ?').run(rij.id);
+      return fout(res, 400, 'Deze code is te vaak onjuist ingevuld. Vraag een nieuwe code aan.');
+    }
+    if (!veiligGelijk(codeAfdruk(code, rij.zout), rij.code)) {
+      db.prepare('UPDATE herstelcodes SET pogingen = pogingen + 1 WHERE id = ?').run(rij.id);
+      return fout(res, 400, 'Code onjuist of verlopen');
+    }
+    zetInstelling('admin_hash', wachtwoordAfdruk(wachtwoord));
+    db.prepare('UPDATE herstelcodes SET gebruikt = 1 WHERE id = ?').run(rij.id);
+    db.prepare('DELETE FROM herstelcodes WHERE gebruikt = 1 OR verloopt < ?').run(nu());
+    db.prepare('DELETE FROM sessies').run();
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+      .run(nu(), 'beveiliging', rij.ip, 'Wachtwoord hersteld met een code uit Slack');
     const token = sessies.maak();
     const koek = `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSIE_UREN * 3600}`;
     return json(res, 200, { ok: true, naam: instelling('admin_naam', 'tom') }, { 'set-cookie': koek });

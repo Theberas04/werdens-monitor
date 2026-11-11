@@ -596,3 +596,79 @@ test('grafieken: tijdreeksen en annotaties in één antwoord', async () => {
     assert.ok(eerste.punten.every((p) => typeof p.op === 'string'), 'elk punt heeft een tijd');
   }
 });
+
+test('wachtwoord vergeten: code via Slack, eenmalig geldig, en een nieuw wachtwoord', async () => {
+  process.env.WM_SLACK_TEST = '1';
+  const ontvangen = [];
+  const hook = http.createServer((req, res) => {
+    let lichaam = '';
+    req.on('data', (c) => { lichaam += c; });
+    req.on('end', () => {
+      ontvangen.push(JSON.parse(lichaam || '{}'));
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+  });
+  await new Promise((r) => hook.listen(0, '127.0.0.1', r));
+  const url = 'http://127.0.0.1:' + hook.address().port + '/services/T000/B000/xyz';
+  const oudeKoek = koek;
+  try {
+    const gezet = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { slack_webhook: url, slack_aan: true } });
+    assert.equal(gezet.status, 200, 'webhook instellen lukt');
+
+    const kan = await alsJson('/api/wachtwoord/kan');
+    assert.equal(kan.status, 200);
+    assert.equal(kan.data.via_slack, true, 'de inlogpagina ziet dat Slack beschikbaar is');
+
+    // Net als de inlogpagina: zonder sessie een code aanvragen.
+    koek = '';
+    const aanvraag = await alsJson('/api/wachtwoord/vergeten', { method: 'POST', lichaam: {} });
+    assert.equal(aanvraag.status, 200);
+    assert.equal(aanvraag.data.kanaal, 'slack');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ontvangen.length, 1, 'precies één bericht met de code');
+    const tekst = JSON.stringify(ontvangen[0]);
+    assert.match(tekst, /Wachtwoord herstellen/, 'bericht heet Wachtwoord herstellen');
+    const code = (tekst.match(/\b(\d{6})\b/) || [])[1];
+    assert.ok(code, 'de code staat als zes cijfers in het bericht');
+    assert.ok(!ontvangen[0].text.includes('admin_hash'), 'geen wachtwoordhash in het bericht');
+
+    // Binnen een minuut nog een code vragen mag niet.
+    const teSnel = await alsJson('/api/wachtwoord/vergeten', { method: 'POST', lichaam: {} });
+    assert.equal(teSnel.status, 429, 'tweede aanvraag binnen een minuut wordt geweigerd');
+
+    // Een foute code wordt geweigerd.
+    const mis = await alsJson('/api/wachtwoord/herstellen', { method: 'POST', lichaam: { code: code === '000000' ? '111111' : '000000', wachtwoord: 'nieuwwachtwoord9' } });
+    assert.equal(mis.status, 400);
+
+    // De juiste code zet een nieuw wachtwoord en logt meteen in.
+    const goed = await alsJson('/api/wachtwoord/herstellen', { method: 'POST', lichaam: { code, wachtwoord: 'nieuwwachtwoord9' } });
+    assert.equal(goed.status, 200, 'code + nieuw wachtwoord lukt');
+    const set = goed.koppen.get('set-cookie');
+    assert.match(set, /wm_sess=/, 'er wordt meteen een sessie gezet');
+    koek = set.split(';')[0];
+
+    // De code is eenmalig: nog een keer gebruiken lukt niet.
+    const hergebruik = await alsJson('/api/wachtwoord/herstellen', { method: 'POST', lichaam: { code, wachtwoord: 'anderwachtwoord8' } });
+    assert.equal(hergebruik.status, 400, 'code werkt maar één keer');
+
+    // Oud wachtwoord werkt niet meer, nieuw wel.
+    const oud = await alsJson('/api/login', { method: 'POST', lichaam: { wachtwoord: 'testwachtwoord123' } });
+    assert.equal(oud.status, 401, 'het oude wachtwoord is vervallen');
+    const nieuw = await alsJson('/api/login', { method: 'POST', lichaam: { wachtwoord: 'nieuwwachtwoord9' } });
+    assert.equal(nieuw.status, 200, 'het nieuwe wachtwoord werkt');
+    const sessie = nieuw.koppen.get('set-cookie');
+    if (sessie) koek = sessie.split(';')[0];
+
+    // Zonder Slack-webhook bestaat er geen kanaal voor de code.
+    await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { slack_aan: false } });
+    const zonderSlack = await alsJson('/api/wachtwoord/kan');
+    assert.equal(zonderSlack.data.via_slack, false);
+    const geenKanaal = await alsJson('/api/wachtwoord/vergeten', { method: 'POST', lichaam: {} });
+    assert.equal(geenKanaal.status, 409, 'zonder Slack verwijst de app naar het reset-script');
+    assert.match(geenKanaal.data.fout, /reset-wachtwoord/);
+  } finally {
+    hook.close();
+    if (!koek) koek = oudeKoek;
+  }
+});

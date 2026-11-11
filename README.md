@@ -222,6 +222,31 @@ nooit terug (wel of er een geheim is ingesteld).
 
 ## Wachtwoord vergeten
 
+### Vanaf de inlogpagina, met een code via Slack
+
+Staat er een Slack-webhook ingesteld (Instellingen → Slack-meldingen), dan hoef je
+niet bij de server te komen: klik op de inlogpagina op **Wachtwoord vergeten?** en
+daarna op **Stuur code via Slack**. Je krijgt in Slack een code van zes cijfers;
+vul die met je nieuwe wachtwoord in en je bent meteen ingelogd. Alle oude sessies
+vervallen.
+
+Zo is het beveiligd:
+
+- de code is **tien minuten** geldig en werkt **één keer**;
+- hij staat alleen als sha256-afdruk in de database (tabel `herstelcodes`), niet
+  als platte tekst, en verdwijnt na gebruik of na het verlopen;
+- na **vijf** foute pogingen is de code verbruikt;
+- hooguit **één aanvraag per minuut** en **vijf per uur**, zodat niemand je
+  Slack volspamt;
+- elke aanvraag en elke geslaagde herstelactie komt in de gebeurtenissenlijst;
+- zonder Slack-webhook weigert de app (`409`) en verwijst naar het script hieronder.
+
+Het nieuwe wachtwoord komt niet in `data/admin-wachtwoord.txt`; dat bestand hoort
+bij het gegenereerde wachtwoord van de installatie. Zet je wachtwoord dus meteen
+goed, of noteer het.
+
+### Vanaf de server, als je niet meer in de app komt
+
 Het beheerderswachtwoord staat als scrypt-afdruk in de database. Ben je het kwijt,
 draai dan vanaf de Proxmox-console in de LXC (of als root op de machine):
 

@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.7.1">
+<meta name="version" content="1.8.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -52,6 +52,15 @@ button{cursor:pointer}
 #login input{width:100%;height:var(--hoogte)}
 #login .knop{width:100%;justify-content:center;margin-top:16px;height:44px}
 #login .fout{color:var(--red);font-size:13px;min-height:18px;margin-top:10px}
+#login .fout.ok{color:var(--ok)}
+#login .hulp{text-align:center;margin:14px 0 0;font-size:13px;color:var(--muted)}
+#login .koppeling{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:13px;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+#login .koppeling:hover{color:var(--accent-d)}
+#login .herstel-uitleg{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.55}
+#login .stap2{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+#login .stap2 .knop{margin-top:12px}
+#login .stap2 label{margin-top:12px}
+#login .stap2 .fout{margin-top:8px}
 .login-voet{color:var(--muted2);font-size:12px;margin-top:16px;text-align:center}
 
 /* ── shell ── */
@@ -511,6 +520,22 @@ details.uitklap[open]>summary{border-color:var(--line)}
       <button class="knop primair" type="submit">Inloggen</button>
       <div class="fout" id="login-fout"></div>
     </form>
+    <p class="hulp" id="ww-hulp"><button type="button" class="koppeling" id="ww-vergeten">Wachtwoord vergeten?</button></p>
+    <div id="ww-herstel" hidden>
+      <p class="herstel-uitleg">We sturen een code van zes cijfers naar je Slack. De code is tien minuten geldig en werkt één keer.</p>
+      <button type="button" class="knop primair" id="ww-stuur">Stuur code via Slack</button>
+      <form id="ww-form" hidden class="stap2">
+        <label for="ww-code">Code uit Slack</label>
+        <input id="ww-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" required>
+        <label for="ww-nieuw">Nieuw wachtwoord</label>
+        <input id="ww-nieuw" type="password" autocomplete="new-password" minlength="8" required>
+        <label for="ww-nieuw2">Nog een keer</label>
+        <input id="ww-nieuw2" type="password" autocomplete="new-password" minlength="8" required>
+        <button class="knop primair" type="submit">Wachtwoord instellen</button>
+      </form>
+      <div class="fout" id="ww-fout"></div>
+      <p class="hulp"><button type="button" class="koppeling" id="ww-terug">Terug naar inloggen</button></p>
+    </div>
   </div>
   <div class="login-voet">Werdens Media · eigen beheer</div>
 </section>
@@ -652,6 +677,16 @@ function toonLogin() {
   $('#login').hidden = false;
   document.body.classList.add('uit');
   $('#app').classList.remove('aan');
+  // Altijd met het gewone inlogformulier beginnen, niet met het herstelpaneel.
+  const herstel = $('#ww-herstel');
+  if (herstel) {
+    herstel.hidden = true;
+    const form = $('#ww-form'); if (form) form.hidden = true;
+    const gewoon = $('#loginform'); if (gewoon) gewoon.hidden = false;
+    const melding = $('#ww-fout'); if (melding) { melding.textContent = ''; melding.classList.remove('ok'); }
+    const hulp = $('#ww-hulp'); if (hulp) hulp.hidden = false;
+    const stuurKnop = $('#ww-stuur'); if (stuurKnop) stuurKnop.style.display = '';
+  }
   setTimeout(() => { const w = $('#ww'); if (w) w.focus(); }, 60);
 }
 async function start() {
@@ -676,6 +711,72 @@ $('#loginform').addEventListener('submit', async (e) => {
     $('#login-fout').textContent = err.message;
   } finally { knop.classList.remove('bezig'); }
 });
+// ── wachtwoord vergeten: code via Slack ─────────────────────────────────────
+const wwHerstel = $('#ww-herstel');
+const wwForm = $('#ww-form');
+const wwFout = $('#ww-fout');
+const wwMeld = (tekst, ok = false) => {
+  wwFout.textContent = tekst || '';
+  wwFout.classList.toggle('ok', Boolean(ok));
+};
+$('#ww-vergeten').addEventListener('click', async () => {
+  $('#loginform').hidden = true;
+  $('#ww-hulp').hidden = true;
+  wwHerstel.hidden = false;
+  $('#ww-stuur').style.display = '';
+  wwMeld('');
+  $('#ww-fout').classList.remove('ok');
+  try {
+    const kan = await api('/api/wachtwoord/kan');
+    if (!kan.via_slack) {
+      wwMeld('Er is nog geen Slack-webhook ingesteld, dus we kunnen geen code sturen. Zet die aan bij Instellingen → Slack-meldingen, of gebruik deploy/reset-wachtwoord.sh op de server.');
+    }
+  } catch (e) { wwMeld('Kon de status niet ophalen. Probeer het opnieuw.'); }
+});
+$('#ww-terug').addEventListener('click', () => {
+  wwHerstel.hidden = true;
+  wwForm.hidden = true;
+  $('#loginform').hidden = false;
+  $('#ww-hulp').hidden = false;
+  wwMeld('');
+  setTimeout(() => { const w = $('#ww'); if (w) w.focus(); }, 40);
+});
+$('#ww-stuur').addEventListener('click', async (e) => {
+  const knop = e.currentTarget;
+  if (knop.classList.contains('bezig')) return;
+  knop.classList.add('bezig');
+  wwMeld('');
+  try {
+    const r = await api('/api/wachtwoord/vergeten', { method: 'POST', lichaam: {} });
+    wwForm.hidden = false;
+    knop.style.display = 'none';
+    wwMeld('Code verstuurd naar Slack. Hij is ' + (r.geldig_minuten || 10) + ' minuten geldig.', true);
+    const c = $('#ww-code'); if (c) c.focus();
+  } catch (err) {
+    wwMeld(err.message);
+  } finally { knop.classList.remove('bezig'); }
+});
+wwForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = $('#ww-code').value.replace(/\s/g, '');
+  const nieuw = $('#ww-nieuw').value;
+  const nog = $('#ww-nieuw2').value;
+  if (!/^\d{6}$/.test(code)) { wwMeld('Vul de zes cijfers uit het Slack-bericht in.'); $('#ww-code').focus(); return; }
+  if (nieuw.length < 8) { wwMeld('Kies een wachtwoord van minstens 8 tekens.'); $('#ww-nieuw').focus(); return; }
+  if (nieuw !== nog) { wwMeld('De twee wachtwoorden zijn niet gelijk.'); $('#ww-nieuw2').focus(); return; }
+  const knop = e.target.querySelector('button[type="submit"]');
+  knop.classList.add('bezig');
+  wwMeld('');
+  try {
+    await api('/api/wachtwoord/herstellen', { method: 'POST', lichaam: { code, wachtwoord: nieuw } });
+    $('#ww-code').value = ''; $('#ww-nieuw').value = ''; $('#ww-nieuw2').value = '';
+    wwMeld('Wachtwoord ingesteld. Je wordt ingelogd…', true);
+    setTimeout(() => { wwHerstel.hidden = true; wwForm.hidden = true; start(); }, 400);
+  } catch (err) {
+    wwMeld(err.message);
+  } finally { knop.classList.remove('bezig'); }
+});
+
 $('#uitloggen').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); } catch {} toonLogin(); });
 $('#vernieuw').addEventListener('click', () => laadHuidig(true));
 
