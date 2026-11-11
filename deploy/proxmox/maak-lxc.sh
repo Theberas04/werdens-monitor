@@ -27,8 +27,10 @@ if [ "${DROOG:-0}" = "1" ]; then
   pveam() {
     case "${1:-}" in
       available)
-        echo "system          debian-13-standard_13.1-2_amd64.tar.zst"
+        echo "system          debian-13-standard_13.6-1_amd64.tar.zst"
+        echo "system          debian-13-standard_13.6-1_arm64.tar.zst"
         echo "system          debian-12-standard_12.7-1_amd64.tar.zst"
+        echo "system          debian-12-standard_12.7-1_arm64.tar.zst"
         ;;
       list) : ;;
       *) echo "   [droog] pveam $*" ;;
@@ -79,9 +81,15 @@ pveam update >/dev/null 2>&1 || true
 PVE_MAJOR="$(pveversion 2>/dev/null | sed -nE 's#^pve-manager/([0-9]+).*#\1#p' | head -1 || true)"
 [ -n "$PVE_MAJOR" ] || PVE_MAJOR=8
 if [ "$PVE_MAJOR" -ge 9 ]; then DEB=13; else DEB=12; fi
-TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E "^debian-${DEB}-standard" | sort -V | tail -1 || true)"
+# Ook de architectuur moet kloppen: op een amd64-host start een arm64-template
+# niet (zelfde "Failed to spawn"-fout). Filter daar dus op.
+case "$(uname -m)" in
+  aarch64|arm64) ARCH=arm64 ;;
+  *) ARCH=amd64 ;;
+esac
+TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E "^debian-${DEB}-standard_.*_${ARCH}\.tar\.zst$" | sort -V | tail -1 || true)"
 if [ -z "$TEMPLATE" ]; then
-  TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E '^debian-1[23]-standard' | sort -V | tail -1 || true)"
+  TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E "^debian-1[23]-standard_.*_${ARCH}\.tar\.zst$" | sort -V | tail -1 || true)"
 fi
 if [ -z "$TEMPLATE" ]; then
   echo "Geen Debian-template gevonden. Draai eerst 'pveam update' op de host." >&2
