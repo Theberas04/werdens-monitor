@@ -116,6 +116,24 @@ kolomErbij('hosts', 'tls_verloopt', "TEXT NOT NULL DEFAULT ''");
 kolomErbij('hosts', 'ok', 'INTEGER NOT NULL DEFAULT 1');
 kolomErbij('hosts', 'fout', "TEXT NOT NULL DEFAULT ''");
 kolomErbij('hosts', 'aangemaakt', "TEXT NOT NULL DEFAULT ''");
+// Zabbix-achtige meldingsvelden: ernst, bevestigen (acknowledge) en escalatie.
+kolomErbij('alerts', 'ernst', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('alerts', 'bevestigd', 'INTEGER NOT NULL DEFAULT 0');
+kolomErbij('alerts', 'bevestigd_op', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('alerts', 'bevestigd_door', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('alerts', 'notitie', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('alerts', 'gemeld_op', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('alerts', 'meldingen', 'INTEGER NOT NULL DEFAULT 0');
+// Oude meldingen hebben nog geen ernst of meldmoment; vul die één keer in zodat
+// het problemenoverzicht en de escalatie meteen kloppen.
+for (const [soort, ernst] of Object.entries({
+  'host neer': 'kritiek', 'apparaat neer': 'kritiek', 'site neer': 'kritiek',
+  'host online': 'info', 'apparaat online': 'info', 'site online': 'info',
+  certificaat: 'gemiddeld', 'poort open': 'waarschuwing', 'poort dicht': 'waarschuwing',
+})) {
+  db.prepare("UPDATE alerts SET ernst=? WHERE soort=? AND (ernst='' OR ernst IS NULL)").run(ernst, soort);
+}
+db.prepare("UPDATE alerts SET gemeld_op=op WHERE gemeld_op='' OR gemeld_op IS NULL").run();
 
 const nu = () => new Date().toISOString();
 function instelling(sleutel, standaard = '') {
@@ -278,6 +296,7 @@ const sites = {
 };
 
 async function meetSite(site) {
+  const vorige = sites.laatste(site.id);
   const meting = await controleerSite(site);
   let stats = null;
   if (site.stats_url) {
@@ -294,6 +313,23 @@ async function meetSite(site) {
   db.prepare(`INSERT INTO controles(site_id,op,ok,code,ms,versie,bytes,tls_dagen,titel,fout)
     VALUES(?,?,?,?,?,?,?,?,?,?)`).run(site.id, meting.op, meting.ok, meting.code, meting.ms,
     meting.versie || '', meting.bytes, meting.tls_dagen, meting.titel || '', meting.fout || '');
+  // Een website die omvalt is net zo goed een storing als een host: dezelfde
+  // meldingen, ernst en escalatie. De sleutel begint met 'site:' zodat hij niet
+  // met een IP-adres botst.
+  const sleutel = 'site:' + site.id;
+  if (vorige && vorige.ok && !meting.ok) {
+    meld(sleutel, 'site neer', site.naam + ' is niet bereikbaar: ' + (meting.fout || 'HTTP ' + meting.code));
+  }
+  if (vorige && !vorige.ok && meting.ok) {
+    meld(sleutel, 'site online', site.naam + ' is weer bereikbaar');
+    losOp(sleutel, 'site neer');
+  }
+  if (meting.ok && meting.tls_dagen !== null && meting.tls_dagen !== undefined && meting.tls_dagen <= 14) {
+    meld(sleutel, 'certificaat', 'Certificaat van ' + site.naam + ' verloopt over ' + meting.tls_dagen + ' dagen');
+  }
+  if (meting.ok && (meting.tls_dagen === null || meting.tls_dagen === undefined || meting.tls_dagen > 14)) {
+    losOp(sleutel, 'certificaat');
+  }
   return meting;
 }
 
@@ -340,17 +376,47 @@ const parseJson = (waarde, standaard) => {
   try { const u = JSON.parse(waarde); return u === null || u === undefined ? standaard : u; } catch { return standaard; }
 };
 
-// Slack-meldingen: één inkomende webhook, ingesteld in het dashboard. Een storing
-// wordt één keer gemeld; blijft hij open, dan niet elke meetronde opnieuw.
+// ── meldingen (naar het voorbeeld van Zabbix) ────────────────────────────────
+// Elke melding heeft een ernst (info → kritiek), kan bevestigd worden
+// (acknowledge) en gaat één keer naar Slack. Een kritieke of hoge melding die
+// niet bevestigd is, wordt na een uur opnieuw gemeld (escalatie). Tijdens een
+// onderhoudsvenster — per host of voor alles ('*') — gaat er niets naar buiten.
+const ERNST = {
+  'host neer': 'kritiek', 'apparaat neer': 'kritiek', 'site neer': 'kritiek',
+  'host online': 'info', 'apparaat online': 'info', 'site online': 'info',
+  certificaat: 'gemiddeld', 'poort open': 'waarschuwing', 'poort dicht': 'waarschuwing',
+  'site traag': 'waarschuwing', 'schijf vol': 'gemiddeld', 'geheugen vol': 'gemiddeld',
+};
+const ERNST_ORDE = { kritiek: 0, hoog: 1, gemiddeld: 2, waarschuwing: 3, info: 4 };
+const ERNST_LABEL = { kritiek: 'Kritiek', hoog: 'Hoog', gemiddeld: 'Gemiddeld', waarschuwing: 'Waarschuwing', info: 'Info' };
+const ernstVan = (soort, ernst) => {
+  if (ernst && ERNST_ORDE[ernst] !== undefined) return ernst;
+  return ERNST[String(soort || '')] || 'gemiddeld';
+};
+
 const SLACK_COOLDOWN_MS = 20 * 60 * 1000;
+const ESCALATIE_MS = 60 * 60 * 1000;
+
+// Onderhoud geldt voor één IP of voor alles (ip='*'), en alleen binnen van..tot.
+function inOnderhoud(ip) {
+  const op = nu();
+  const rij = db.prepare("SELECT id FROM onderhoud WHERE (ip=? OR ip='*') AND tot>=? AND (van='' OR van<=?) LIMIT 1")
+    .get(String(ip || ''), op, op);
+  return !!rij;
+}
+
 function slackIngesteld() {
   return instelling('slack_aan') === '1' && !!instelling('slack_webhook');
 }
+
 function stuurSlack(alert) {
   if (!slackIngesteld()) return;
+  // Bevestigd of in onderhoud: geen (herhaal)melding.
+  if (alert.bevestigd) return;
+  if (inOnderhoud(alert.ip)) return;
   const host = db.prepare('SELECT naam, hostnaam FROM hosts WHERE ip=?').get(alert.ip);
-  const naam = (host && (host.naam || host.hostnaam)) || '';
-  const soort = alert.soort === 'host online' ? 'herstel' : alert.soort;
+  const naam = (host && (host.naam || host.hostnaam)) || alert.naam || '';
+  const soort = alert.soort === 'host online' || alert.soort === 'site online' ? 'herstel' : alert.soort;
   if (soort === 'herstel' && instelling('slack_herstel', '1') !== '1') return;
   const vorige = db.prepare('SELECT op, ok FROM slack_verzonden WHERE ip=? AND soort=?').get(alert.ip, soort);
   if (vorige && vorige.ok && soort !== 'herstel' && Date.now() - Date.parse(vorige.op) < SLACK_COOLDOWN_MS) return;
@@ -367,20 +433,38 @@ function stuurSlack(alert) {
     .catch((e) => bewaar(false, e.message));
 }
 
-function meld(ip, soort, bericht) {
+function meld(ip, soort, bericht, ernst) {
   const bestaat = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND bericht=? AND opgelost=''").get(ip, soort, bericht);
   if (bestaat) return;
-  const r = db.prepare('INSERT INTO alerts(ip,soort,bericht,op) VALUES(?,?,?,?)').run(ip, soort, bericht, nu());
-  db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(nu(), 'alert', ip, bericht);
+  const e = ernstVan(soort, ernst);
+  const op = nu();
+  const r = db.prepare('INSERT INTO alerts(ip,soort,bericht,op,ernst,gemeld_op,meldingen) VALUES(?,?,?,?,?,?,?)')
+    .run(ip, soort, bericht, op, e, op, 1);
+  db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(op, 'alert', ip, bericht);
   const rij = db.prepare('SELECT * FROM alerts WHERE id=?').get(r.lastInsertRowid);
   if (rij) stuurSlack(rij);
 }
+
 function losOp(ip, soort) {
   const open = db.prepare("SELECT * FROM alerts WHERE ip=? AND soort=? AND opgelost=''").all(ip, soort);
   for (const a of open) {
-    db.prepare('UPDATE alerts SET opgelost=? WHERE id=?').run(nu(), a.id);
-    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(nu(), 'opgelost', ip, soort + ' opgelost');
-    stuurSlack({ ...a, soort: 'herstel', bericht: 'Opgelost: ' + a.bericht });
+    const op = nu();
+    db.prepare('UPDATE alerts SET opgelost=? WHERE id=?').run(op, a.id);
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(op, 'opgelost', ip, soort + ' opgelost');
+    stuurSlack({ ...a, soort: 'herstel', bevestigd: 0, bericht: 'Opgelost: ' + a.bericht });
+  }
+}
+
+// Escalatie: een open, onbevestigde kritieke/hoge melding wordt na een uur
+// opnieuw gemeld. Zo blijft een echte storing niet ongemerkt liggen.
+function escaleer() {
+  const grens = new Date(Date.now() - ESCALATIE_MS).toISOString();
+  const open = db.prepare(`SELECT * FROM alerts WHERE opgelost='' AND bevestigd=0
+    AND ernst IN ('kritiek','hoog') AND (gemeld_op='' OR gemeld_op<=?)`).all(grens);
+  for (const a of open) {
+    if (inOnderhoud(a.ip)) continue;
+    stuurSlack({ ...a, soort: 'escalatie', bericht: 'Nog niet opgelost (' + (ERNST_LABEL[a.ernst] || a.ernst) + '): ' + a.bericht });
+    db.prepare('UPDATE alerts SET gemeld_op=?, meldingen=meldingen+1 WHERE id=?').run(nu(), a.id);
   }
 }
 
@@ -721,7 +805,7 @@ async function hostRonde() {
   try {
     for (const h of hosts.lijst()) {
       if (!h.actief) continue;
-      if (hosts.onderhoud(h.ip).length) continue;      // in onderhoud: niet scannen
+      if (inOnderhoud(h.ip)) continue;                 // in onderhoud: niet scannen
       const volgende = h.laatste_scan ? new Date(h.laatste_scan).getTime() + (h.interval_s || 300) * 1000 : 0;
       if (Date.now() < volgende) continue;
       try { await hosts.scan(h.ip); } catch (e) { console.error('Scan mislukt voor ' + h.ip + ': ' + e.message); }
@@ -1176,6 +1260,84 @@ async function verwerk(req, res) {
     else return fout(res, 404, 'Onbekende actie');
     return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
   }
+  // ── problemen (Zabbix-achtig overzicht) ────────────────────────────────────
+  if (pad === '/api/problemen' && methode === 'GET') {
+    const open = hosts.openAlerts().map((a) => {
+      const host = a.ip && a.ip.startsWith('site:') ? null : db.prepare('SELECT naam, hostnaam FROM hosts WHERE ip=?').get(a.ip);
+      const naam = host ? (host.naam || host.hostnaam || a.ip) : (a.ip || '').replace(/^site:/, 'site ');
+      return {
+        ...a,
+        ernst: a.ernst || ernstVan(a.soort),
+        naam,
+        in_onderhoud: inOnderhoud(a.ip),
+        uptime24: host ? hosts.uptime(a.ip, 24) : null,
+        uptime168: host ? hosts.uptime(a.ip, 168) : null,
+      };
+    }).sort((a, b) => (ERNST_ORDE[a.ernst] ?? 9) - (ERNST_ORDE[b.ernst] ?? 9) || String(b.op).localeCompare(String(a.op)));
+    const tellingen = {};
+    for (const k of Object.keys(ERNST_ORDE)) tellingen[k] = open.filter((a) => a.ernst === k).length;
+    return json(res, 200, { problemen: open, tellingen, ernst: ERNST_LABEL, orde: ERNST_ORDE, onderhoud: inOnderhoud('*') });
+  }
+  if (delen[1] === 'problemen' && delen[2] && methode === 'POST') {
+    const id = Number(delen[2]);
+    const alert = db.prepare('SELECT * FROM alerts WHERE id=?').get(id);
+    if (!alert) return fout(res, 404, 'Melding niet gevonden');
+    const body = await leesBody(req).catch(() => ({}));
+    if (delen[3] === 'bevestigen') {
+      db.prepare("UPDATE alerts SET bevestigd=1, bevestigd_op=?, bevestigd_door=?, notitie=? WHERE id=?")
+        .run(nu(), tekst(body.door, 80) || 'Tom', tekst(body.notitie, 500), id);
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'bevestigd', alert.ip, 'Melding bevestigd: ' + alert.bericht);
+      return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
+    }
+    if (delen[3] === 'oplossen') {
+      db.prepare('UPDATE alerts SET opgelost=?, notitie=? WHERE id=?')
+        .run(nu(), tekst(body.notitie, 500) || alert.notitie || '', id);
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'opgelost', alert.ip, 'Melding opgelost: ' + alert.bericht);
+      return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
+    }
+    if (delen[3] === 'terugzetten') {
+      db.prepare("UPDATE alerts SET bevestigd=0, bevestigd_op='', bevestigd_door='' WHERE id=?").run(id);
+      return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
+    }
+    return fout(res, 404, 'Onbekende actie');
+  }
+
+  // ── SLA: uptime per host over 24 uur en 7 dagen ─────────────────────────────
+  if (pad === '/api/sla' && methode === 'GET') {
+    const rijen = hosts.lijst().map((h) => ({
+      ip: h.ip, naam: h.naam || h.hostnaam || h.ip, actief: !!h.actief,
+      uptime24: hosts.uptime(h.ip, 24), uptime168: hosts.uptime(h.ip, 168),
+      open: db.prepare("SELECT COUNT(*) n FROM alerts WHERE ip=? AND opgelost=''").get(h.ip).n,
+    }));
+    return json(res, 200, { hosts: rijen });
+  }
+
+  // ── onderhoudsvensters (per host of voor alles) ────────────────────────────
+  if (pad === '/api/onderhoud' && methode === 'GET') {
+    const alles = db.prepare('SELECT * FROM onderhoud ORDER BY tot DESC LIMIT 60').all();
+    return json(res, 200, { onderhoud: alles, actief: alles.filter((o) => o.tot >= nu() && (!o.van || o.van <= nu())) });
+  }
+  if (pad === '/api/onderhoud' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    const ip = tekst(body.ip, 120) || '*';
+    const van = tekst(body.van, 40) || nu();
+    const tot = tekst(body.tot, 40);
+    if (!tot) return fout(res, 400, 'Eindtijd is verplicht');
+    if (Date.parse(tot) <= Date.parse(van)) return fout(res, 400, 'Eindtijd moet na de begintijd liggen');
+    const reden = tekst(body.reden, 200) || 'Onderhoud';
+    db.prepare('INSERT INTO onderhoud(ip,van,tot,reden,aangemaakt) VALUES(?,?,?,?,?)').run(ip, van, tot, reden, nu());
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+      .run(nu(), 'onderhoud', ip, 'Onderhoud tot ' + tot + (reden ? ': ' + reden : ''));
+    return json(res, 201, { onderhoud: db.prepare('SELECT * FROM onderhoud ORDER BY tot DESC LIMIT 60').all() });
+  }
+  if (delen[1] === 'onderhoud' && delen[2] && methode === 'DELETE') {
+    db.prepare('DELETE FROM onderhoud WHERE id=?').run(Number(delen[2]));
+    return json(res, 200, { ok: true });
+  }
+
   if (pad === '/api/gebeurtenissen' && methode === 'GET') {
     return json(res, 200, { gebeurtenissen: db.prepare('SELECT * FROM gebeurtenissen ORDER BY id DESC LIMIT 80').all() });
   }
@@ -1471,6 +1633,7 @@ if (require.main === module) {
   setInterval(() => meetRonde().catch(() => {}), 30e3);
   setTimeout(() => hostRonde().catch(() => {}), 3500);
   setInterval(() => hostRonde().catch(() => {}), 60e3);
+  setInterval(() => { try { escaleer(); } catch (e) { console.error('Escalatie mislukt: ' + e.message); } }, 5 * 60e3);
   setInterval(() => { if (!ververstBezig) verversProjecten(); }, 15 * 60e3);
   setInterval(() => db.prepare('DELETE FROM sessies WHERE verloopt < ?').run(nu()), 3600e3);
 }

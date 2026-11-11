@@ -486,3 +486,40 @@ test('servers: een externe server kan verwijderd worden', async () => {
   assert.ok(!lijst.data.servers.some((s) => s.id === id), 'server is weg');
 });
 
+test('problemen: ernst, bevestigen, onderhoudsvenster en SLA', async () => {
+  const op = new Date().toISOString();
+  db.prepare('INSERT INTO alerts(ip,soort,bericht,op,ernst,gemeld_op,meldingen) VALUES(?,?,?,?,?,?,?)')
+    .run('192.0.2.55', 'host neer', 'Testhost plat', op, 'kritiek', op, 1);
+  try {
+    const p = await alsJson('/api/problemen');
+    assert.equal(p.status, 200);
+    const rij = p.data.problemen.find((a) => a.ip === '192.0.2.55');
+    assert.ok(rij, 'de melding staat in het problemenoverzicht');
+    assert.equal(rij.ernst, 'kritiek');
+    assert.equal(rij.bevestigd, 0);
+    assert.ok(p.data.tellingen.kritiek >= 1);
+    assert.ok(p.data.ernst.kritiek, 'ernst-labels komen mee voor de UI');
+
+    const ack = await alsJson('/api/problemen/' + rij.id + '/bevestigen', { method: 'POST', lichaam: { notitie: 'ik kijk ernaar' } });
+    assert.equal(ack.status, 200);
+    assert.equal(ack.data.alert.bevestigd, 1);
+    assert.equal(ack.data.alert.bevestigd_door, 'Tom');
+    assert.equal(ack.data.alert.notitie, 'ik kijk ernaar');
+
+    const tot = new Date(Date.now() + 3600e3).toISOString();
+    const ond = await alsJson('/api/onderhoud', { method: 'POST', lichaam: { ip: '*', tot, reden: 'test' } });
+    assert.equal(ond.status, 201, 'globaal onderhoudsvenster aanmaken');
+    const p2 = await alsJson('/api/problemen');
+    assert.equal(p2.data.onderhoud, true, 'meldingen zijn stilgelegd');
+
+    const sla = await alsJson('/api/sla');
+    assert.equal(sla.status, 200);
+    assert.ok(Array.isArray(sla.data.hosts), 'SLA-overzicht per host');
+
+    const klaar = await alsJson('/api/problemen/' + rij.id + '/oplossen', { method: 'POST' });
+    assert.ok(klaar.data.alert.opgelost, 'melding is opgelost');
+  } finally {
+    db.prepare("DELETE FROM onderhoud WHERE ip='*'").run();
+    db.prepare("DELETE FROM alerts WHERE ip='192.0.2.55'").run();
+  }
+});

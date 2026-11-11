@@ -1,6 +1,6 @@
 {
   "name": "werdens-monitor",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "description": "Werdens Monitor \u2014 eigen infra- en websitedashboard voor Werdens Media: GitHub-projecten, websiteversies, hostcontrole en ICT-tickets voor de AI-agent.",
   "license": "UNLICENSED",
