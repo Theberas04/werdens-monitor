@@ -76,7 +76,7 @@ pveam update >/dev/null 2>&1 || true
 # Kies de Debian-versie die bij deze Proxmox past: PVE 8 = Debian 12, PVE 9 =
 # Debian 13. Een Debian 13-template op een PVE 8-host start niet ("Failed to
 # spawn container"), en dat is precies de valkuil als je blind de nieuwste pakt.
-PVE_MAJOR="$(pveversion 2>/dev/null | sed -nE 's#^pve-manager/([0-9]+).*#\1#p' | head -1)"
+PVE_MAJOR="$(pveversion 2>/dev/null | sed -nE 's#^pve-manager/([0-9]+).*#\1#p' | head -1 || true)"
 [ -n "$PVE_MAJOR" ] || PVE_MAJOR=8
 if [ "$PVE_MAJOR" -ge 9 ]; then DEB=13; else DEB=12; fi
 TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E "^debian-${DEB}-standard" | sort -V | tail -1 || true)"
