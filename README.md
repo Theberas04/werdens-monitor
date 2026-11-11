@@ -34,6 +34,11 @@ en de sites die erop draaien.
 **Poortscan** — een IP aftasten op de gebruikelijke poorten meteen bij het
 aanmaken van een ticket, zodat de agent weet wat er open staat.
 
+**Netwerk scannen** — de monitor loopt het eigen subnet af en toont welk IP
+erop staat, met hostnaam, MAC-adres en open poorten. Wat je wilt volgen vink je
+aan en zet je in één keer in de IP-lijst; bestaande hosts worden overgeslagen.
+Scant alleen privé-adressen, geen internet.
+
 **Servers** — CPU, geheugen, schijven, GPU, temperatuur en netwerk per server.
 De monitor leest zijn eigen machine rechtstreeks uit `/proc`, `/sys` en `df`;
 andere servers draaien een klein agent-script dat elke minuut dezelfde cijfers
@@ -83,6 +88,30 @@ verandert. Herstel gaat altijd door, ook als het kanaal even niet bereikbaar was
 Webhook maken: in Slack een app aanmaken → *Incoming Webhooks* → *Add New
 Webhook to Workspace* → kanaal kiezen → URL kopiëren. De URL is een geheim: hij
 staat in de database van de monitor en niet in de repo of in de omgeving.
+
+## GitHub-token in de app
+
+De Projecten-tab en het bijwerken werken met de publieke GitHub-API, maar op een
+lager limiet (60 verzoeken per uur). Met een token gaat dat naar 5000 en werken
+ook besloten repo's. Zet hem in **Instellingen → GitHub-token**; de monitor test
+het token eerst bij GitHub en bewaart het pas als het werkt. Daarna is het token
+niet meer terug te lezen — je ziet alleen nog dát het er is en waar het vandaan
+komt (dashboard of omgeving).
+
+Een token maak je op GitHub → *Settings* → *Developer settings* → *Personal
+access tokens*. Voor openbare repo's volstaat geen enkele scope; voor besloten
+repo's heb je `repo` nodig.
+
+## De software bijwerken
+
+**Instellingen → Bijwerken** toont de draaiende versie en de nieuwste op GitHub.
+Met **Nu bijwerken** haalt de monitor de nieuwe tarball op, controleert de
+syntax van de nieuwe `server.js` vóór er iets overschreven wordt, laat `data/`
+met de database staan en herstart via systemd. Lukt de controle niet, dan blijft
+de oude versie draaien.
+
+Dit werkt bij een installatie via het LXC-script of de installer; draai je de app
+los tijdens het ontwikkelen, gebruik dan `git pull`.
 
 ## Schermen
 
@@ -209,7 +238,7 @@ SameSite=Strict). Elke wijziging zit achter dat ene account.
 ## Ontwikkelen
 
 ```bash
-node --test test/*.test.js       # 11 tests
+node --test test/*.test.js       # 14 tests
 node scripts/seed-demo.js        # demodata in een lege database
 node scripts/record-demo.js uit/frames   # schermopname via CDP
 ```
@@ -225,11 +254,13 @@ server.js              http-server, routes, achtergrondmetingen, sessies
 lib/checks.js          site meten (status, tijd, versie, TLS) en host scannen
 lib/github.js          repo's, tags, commits en CI via de GitHub-API
 lib/hardware.js        CPU, RAM, schijven, GPU, temperatuur en netwerk uitlezen
+lib/netwerk.js         subnetten bepalen, adressen aftasten, ARP en reverse DNS
+lib/update.js          nieuwste versie van GitHub halen, uitpakken, herstarten
 lib/slack.js           Slack-webhook: bericht opbouwen en versturen
 public/                index.html (één bestand), sw.js, manifest, iconen
 scripts/werdens-agent.js  hardware-agent voor andere servers (geen npm)
 scripts/               seed-demo.js, shoot.js, shoot-slack.js, record-demo.js
-test/                  node:test, 11 tests
+test/                  node:test, 14 tests
 docs/                  schermafbeeldingen, hero en de demo-video
 ```
 

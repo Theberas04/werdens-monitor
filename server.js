@@ -12,9 +12,18 @@ const os = require('node:os');
 const sqlite3 = require('node:sqlite');
 const { URL } = require('node:url');
 const { controleerSite, haalStats, scanHost } = require('./lib/checks');
-const { haalProjecten } = require('./lib/github');
+const github = require('./lib/github');
+const { haalProjecten } = github;
+const update = require('./lib/update');
 const slack = require('./lib/slack');
 const hardware = require('./lib/hardware');
+const netwerk = require('./lib/netwerk');
+
+// Laatste netwerkscan in het geheugen: het dashboard hoeft hem niet te bewaren,
+// hij is toch maar een momentopname. `netwerkGevonden` onthoudt de namen zodat
+// toevoegen de reverse-DNS-naam meteen kan meenemen.
+let netwerkLaatst = null;
+let netwerkGevonden = [];
 
 const POORT = Number(process.env.PORT || 8080);
 const BASIS = process.env.BASE_URL || ('http://localhost:' + POORT);
@@ -106,6 +115,10 @@ function zetInstelling(sleutel, waarde) {
   db.prepare('INSERT INTO instellingen(sleutel,waarde) VALUES(?,?) ON CONFLICT(sleutel) DO UPDATE SET waarde=excluded.waarde')
     .run(sleutel, String(waarde));
 }
+
+// Het GitHub-token uit de database heeft voorrang op de omgeving: wat de
+// gebruiker in het dashboard invult, hoort meteen te werken.
+github.zetToken(instelling('github_token'));
 
 // ── beheerder ────────────────────────────────────────────────────────────────
 const scrypt = (wachtwoord, zout) => crypto.scryptSync(String(wachtwoord), zout, 64).toString('hex');
@@ -1048,13 +1061,69 @@ async function verwerk(req, res) {
     } catch (e) { return fout(res, 400, e.message); }
   }
 
+  // ── netwerk: alle adressen op het LAN van deze machine ─────────────────────
+  if (pad === '/api/netwerk' && methode === 'GET') {
+    return json(res, 200, { subnetten: netwerk.subnetten(), laatst: netwerkLaatst });
+  }
+  if (pad === '/api/netwerk/scan' && methode === 'POST') {
+    const body = (await leesBody(req).catch(() => null)) || {};
+    const lijst = netwerk.subnetten();
+    if (!lijst.length) return fout(res, 400, 'Deze machine heeft geen LAN-interface met een IPv4-adres');
+    const gekozen = body.cidr ? lijst.find((s) => s.cidr === String(body.cidr)) : lijst[0];
+    if (!gekozen) return fout(res, 400, 'Onbekend subnet: ' + String(body.cidr));
+    try {
+      const gevonden = await netwerk.ontdek(gekozen);
+      const bekend = new Set(hosts.lijst().map((h) => h.ip));
+      netwerkLaatst = { op: nu(), cidr: gekozen.cidr, aantal: gevonden.length };
+      netwerkGevonden = gevonden;
+      return json(res, 200, {
+        subnet: { cidr: gekozen.cidr, netwerk: gekozen.netwerk, prefix: gekozen.prefix, interface: gekozen.interface },
+        subnetten: lijst,
+        gevonden: gevonden.map((g) => ({
+          ...g,
+          bestaat_al: bekend.has(g.ip),
+          naam: ((hosts.een(g.ip) || {}).naam) || '',
+        })),
+        laatst: netwerkLaatst,
+      });
+    } catch (e) { return fout(res, 400, 'Netwerkscan mislukt: ' + e.message); }
+  }
+  if (pad === '/api/netwerk/toevoegen' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    const ips = Array.isArray(body.ips) ? body.ips.map((x) => String(x || '').trim()) : [];
+    const schoon = [...new Set(ips.filter((ip) => net.isIP(ip) === 4))];
+    if (!schoon.length) return fout(res, 400, 'Geen geldige IPv4-adressen opgegeven');
+    const interval = Math.min(86400, Math.max(60, Number(body.interval_s) || 300));
+    const toegevoegd = [];
+    const overgeslagen = [];
+    for (const ip of schoon) {
+      if (hosts.een(ip)) { overgeslagen.push(ip); continue; }
+      const g = (netwerkGevonden || []).find((x) => x.ip === ip);
+      db.prepare('INSERT INTO hosts(ip,naam,notitie,interval_s,actief,aangemaakt) VALUES(?,?,?,?,?,?)')
+        .run(ip, tekst((g && g.hostnaam) || body.naam, 80), tekst(body.notitie, 300), interval, 1, nu());
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'host toegevoegd', ip, 'Host ' + ip + ' uit netwerkscan toegevoegd');
+      toegevoegd.push(ip);
+    }
+    // Niet wachten op de volledige scan per host: de lijst vult zich, hostRonde
+    // haalt daarna poorten, titels en certificaten op.
+    if (toegevoegd.length) setTimeout(() => hostRonde().catch(() => {}), 50);
+    return json(res, 200, { toegevoegd, overgeslagen, aantal: toegevoegd.length });
+  }
+
   if (pad === '/api/instellingen' && methode === 'GET') {
     return json(res, 200, {
       admin_naam: instelling('admin_naam', 'tom'),
       agent_token: instelling('agent_token'),
       projecten_op: instelling('projecten_op'),
       projecten_fout: instelling('projecten_fout'),
-      github_token: process.env.GITHUB_TOKEN ? 'ingesteld via omgeving' : 'niet ingesteld',
+      github_token: github.token() ? 'ingesteld' : 'niet ingesteld',
+      github_token_bron: instelling('github_token') ? 'dashboard' : (process.env.GITHUB_TOKEN ? 'omgeving' : ''),
+      github_login: instelling('github_login'),
+      github_scopes: instelling('github_scopes'),
+      update_versie: update.lokaal().versie,
+      update_sha: update.lokaal().sha,
       slack_webhook: instelling('slack_webhook'),
       slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
@@ -1087,13 +1156,55 @@ async function verwerk(req, res) {
         zetInstelling('slack_webhook', '');
       }
     }
+    if (body.github_token !== undefined) {
+      const invoer = tekst(body.github_token, 200);
+      if (invoer) {
+        try {
+          const wie = await github.wieIsToken(invoer);
+          zetInstelling('github_token', invoer);
+          zetInstelling('github_login', wie.login);
+          zetInstelling('github_scopes', wie.scopes);
+          github.zetToken(invoer);
+          zetInstelling('projecten_fout', '');
+        } catch (e) { return fout(res, 400, 'Token niet opgeslagen: ' + e.message); }
+      } else {
+        zetInstelling('github_token', '');
+        zetInstelling('github_login', '');
+        zetInstelling('github_scopes', '');
+        github.zetToken('');
+      }
+    }
     if (body.slack_aan !== undefined) zetInstelling('slack_aan', body.slack_aan ? '1' : '0');
     if (body.slack_herstel !== undefined) zetInstelling('slack_herstel', body.slack_herstel ? '1' : '0');
     return json(res, 200, {
-      ok: true, agent_token: instelling('agent_token'),
+      ok: true, github_token: github.token() ? 'ingesteld' : 'niet ingesteld',
+      github_login: instelling('github_login'), agent_token: instelling('agent_token'),
       slack_webhook: instelling('slack_webhook'), slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
     });
+  }
+
+  // ── zelf bijwerken ─────────────────────────────────────────────────────────
+  // Controleert of de nieuwste versie op GitHub al draait; uitvoeren vervangt de
+  // bestanden en laat systemd het proces herstarten.
+  if (pad === '/api/update' && methode === 'GET') {
+    const hier = update.lokaal();
+    return json(res, 200, { versie: hier.versie, sha: hier.sha, geinstalleerd: hier.geinstalleerd, repo: update.REPO, herstart: process.env.WM_UPDATE_RESTART !== '0' });
+  }
+  if (pad === '/api/update/controleer' && methode === 'POST') {
+    try { return json(res, 200, await update.controleer(github.token())); }
+    catch (e) { return fout(res, 400, 'Controle mislukt: ' + e.message); }
+  }
+  if (pad === '/api/update/uitvoeren' && methode === 'POST') {
+    try {
+      const uit = await update.uitvoeren(github.token());
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'bijgewerkt', '', 'Monitor bijgewerkt naar ' + String(uit.sha || '').slice(0, 7));
+      // systemd start de dienst opnieuw (Restart=always); de gebruiker hoeft
+      // niets te doen. Zonder systemd blijft de oude code draaien tot een herstart.
+      if (!uit.al_actueel && process.env.WM_UPDATE_RESTART !== '0') setTimeout(() => process.exit(0), 600);
+      return json(res, 200, uit);
+    } catch (e) { return fout(res, 400, 'Bijwerken mislukt: ' + e.message); }
   }
 
   // Testbericht: laat meteen zien of de webhook werkt, zonder te wachten op een

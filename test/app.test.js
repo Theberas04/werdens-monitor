@@ -305,3 +305,41 @@ test('de API beschermt zich tegen een protocol-relatief pad', async () => {
   const nog = await alsJson('/api/overzicht');
   assert.equal(nog.status, 200, 'server leeft nog');
 });
+test('netwerk: subnetten opvragen en adressen toevoegen', async () => {
+  const r = await alsJson('/api/netwerk');
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.data.subnetten));
+  for (const s of r.data.subnetten) {
+    assert.ok(s.cidr.includes('/'), 'subnet heeft een CIDR');
+    assert.ok(s.eigen.length >= 1, 'subnet kent het eigen adres');
+  }
+
+  const onzin = await alsJson('/api/netwerk/toevoegen', { method: 'POST', lichaam: { ips: ['geen-ip', ''] } });
+  assert.equal(onzin.status, 400, 'ongeldige adressen worden geweigerd');
+
+  const toe = await alsJson('/api/netwerk/toevoegen', { method: 'POST', lichaam: { ips: ['192.0.2.77', '192.0.2.77'], interval_s: 3600 } });
+  assert.equal(toe.status, 200);
+  assert.deepEqual(toe.data.toegevoegd, ['192.0.2.77'], 'dubbel adres maar één keer');
+  const lijst = await alsJson('/api/hosts');
+  assert.ok(lijst.data.hosts.some((h) => h.ip === '192.0.2.77'), 'host staat in de lijst');
+
+  const nog = await alsJson('/api/netwerk/toevoegen', { method: 'POST', lichaam: { ips: ['192.0.2.77'] } });
+  assert.deepEqual(nog.data.overgeslagen, ['192.0.2.77'], 'bestaand adres wordt overgeslagen');
+
+  await verzoek('/api/hosts/192.0.2.77', { method: 'DELETE' });
+});
+
+test('github-token: ongeldig token wordt geweigerd, leeg token wist het', async () => {
+  const fout = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { github_token: 'ghp_dezebestaatniet0000000000000000000000' } });
+  assert.equal(fout.status, 400, 'GitHub weigert dit token');
+  const inst = await alsJson('/api/instellingen');
+  assert.notEqual(inst.data.github_token_bron, 'dashboard', 'een geweigerd token wordt niet bewaard');
+});
+
+test('bijwerken: versie opvragen', async () => {
+  const r = await alsJson('/api/update');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.versie, require('../package.json').version);
+  assert.equal(r.data.repo, 'Theberas04/werdens-monitor');
+});
+

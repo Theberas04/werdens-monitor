@@ -88,6 +88,16 @@ fi
 cd "$MAP"
 mkdir -p data
 
+# De sha onthouden zodat de app in het dashboard kan zien of er een nieuwere
+# versie is. Zonder dit bestand valt hij terug op 'git rev-parse HEAD'.
+if command -v git >/dev/null 2>&1 && [ -d "$MAP/.git" ]; then
+  SHA="$(git -C "$MAP" rev-parse HEAD 2>/dev/null || true)"
+  if [ -n "$SHA" ]; then
+    printf '{\n  "sha": "%s",\n  "versie": "%s",\n  "geinstalleerd": "%s"\n}\n' \
+      "$SHA" "$(node -p "require('$MAP/package.json').version" 2>/dev/null || echo '')" "$(date -Is)" > data/.versie.json
+  fi
+fi
+
 if [ -z "${ADMIN_PASSWORD:-}" ] && [ ! -f data/.wachtwoord ]; then
   echo "Let op: ADMIN_PASSWORD is niet gezet; de app genereert er één en zet die in het log." >&2
   echo "Lees hem met: journalctl -u $DIENST -n 40 | grep -i wachtwoord" >&2
@@ -131,7 +141,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=$MAP/data
+# De app mag zijn eigen bestanden vervangen (zelf-update via het dashboard);
+# data/ zit daar automatisch in.
+ReadWritePaths=$MAP
 
 [Install]
 WantedBy=multi-user.target

@@ -177,6 +177,19 @@ details.uitklap>summary:hover{color:var(--txt)}
 details.uitklap>summary .plus{margin-left:auto;color:var(--muted2);font-size:18px;line-height:1}
 details.uitklap[open]>summary{border-bottom:1px solid var(--line);color:var(--txt)}
 details.uitklap .binnen{padding:16px}
+/* Netwerkrijen: eigen opmaak, want de globale input-regel zet elk veld op 100% breed. */
+.netrij{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.netrij input[type=checkbox]{width:16px;height:16px;min-width:16px;flex:none;padding:0;margin:0;accent-color:var(--accent);cursor:pointer}
+.netrij .kip{font-family:var(--mono);font-size:12.5px;min-width:112px}
+.netrij .knaam{flex:0 1 340px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.netrij .kpoorten{display:flex;gap:4px;flex-wrap:wrap;flex:1;justify-content:flex-end}
+@media (max-width:700px){
+  .netrij{flex-wrap:wrap;row-gap:6px}
+  .netrij .knaam{flex:1 1 auto}
+  .netrij .kpoorten{flex:1 1 100%;justify-content:flex-start}
+}
+.netrij.zal{opacity:.72}
+.netwerk-kop{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 
 /* ── projecten ── */
 .project-grid{display:grid;gap:12px;grid-template-columns:1fr}
@@ -593,6 +606,7 @@ const ico = {
   terug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>',
   span: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 11-2.3-5.6M20 4v5h-5"/></svg>',
   fles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M9 3h6v3l2 3v11a1 1 0 01-1 1H8a1 1 0 01-1-1V9l2-3z"/></svg>',
+  netwerk: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M12 7.2v4.3M12 11.5l-5.5 4.6M12 11.5l5.5 4.6"/></svg>',
 };
 function leeg(tekst) { return '<p class="leeg" style="padding:18px">' + esc(tekst) + '</p>'; }
 function chip(tekst, kleur = '') { return '<span class="chip ' + kleur + '">' + esc(tekst) + '</span>'; }
@@ -1165,6 +1179,8 @@ function bevestig(titel, tekst, ja) {
 let hostsCache = [];
 let hostDetail = null;
 let serverDetail = null;
+let netwerkLaatst = null;      // laatste netwerkscan in de UI
+let netwerkBezig = false;
 
 function hostStatus(st) {
   if (st === 'neer') return { klasse: 'neer', tekst: 'niet bereikbaar' };
@@ -1200,6 +1216,16 @@ async function laadHosts() {
 }
 
 function renderHosts(d) {
+  const netwerkKaart = '<details class="uitklap" id="netwerkform"><summary>' + ico.netwerk
+    + ' Netwerk scannen<span class="plus">+</span></summary>'
+    + '<div class="binnen">'
+    + '<p class="hint">Zoekt alle apparaten op het LAN van deze machine en zet ze met één klik in de lijst. '
+    + 'Per adres worden een paar veelgebruikte poorten geprobeerd; wat antwoordt komt in de lijst.</p>'
+    + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="knop primair" type="button" id="netwerk-scan">Netwerk scannen</button>'
+    + '<span class="hint" style="margin:0">Duurt een paar seconden; niets wordt vanzelf toegevoegd.</span></div>'
+    + '<div id="netwerkuitslag" style="margin-top:14px"><p class="leeg">Nog niet gescand.</p></div>'
+    + '</div></details>';
+
   const nieuw = '<details class="uitklap" id="hostform"><summary>' + ico.plus + ' IP-adres toevoegen<span class="plus">+</span></summary>'
     + '<div class="binnen"><form id="hostnieuw">'
     + '<div class="form-rij twee">'
@@ -1243,7 +1269,7 @@ function renderHosts(d) {
       + '</div>';
   }).join('') : '<div class="kaart"><div class="kaart-body"><p class="leeg">Nog geen IP-adressen. Voeg er hierboven één toe; de eerste scan start meteen.</p></div></div>';
 
-  beeld.innerHTML = nieuw + alerts
+  beeld.innerHTML = nieuw + netwerkKaart + alerts
     + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>IP-adressen</h2><div class="rechts">'
     + '<span class="meting-tijd">' + hostsCache.length + ' adressen</span></div></div><div class="kaart-body">'
     + '<div class="host-grid">' + kaarten + '</div></div></div>';
@@ -1251,6 +1277,7 @@ function renderHosts(d) {
 }
 
 function koppelHosts() {
+  koppelNetwerk();
   const form = $('#hostnieuw');
   if (form) form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1276,6 +1303,74 @@ function koppelHosts() {
     hostDetail = el.dataset.host;
     laadHostDetail(hostDetail);
   }));
+}
+
+function koppelNetwerk() {
+  const knop = $('#netwerk-scan');
+  if (knop) knop.addEventListener('click', scanNetwerk);
+}
+
+async function scanNetwerk() {
+  const knop = $('#netwerk-scan');
+  const uit = $('#netwerkuitslag');
+  if (!uit) return;
+  if (knop) { knop.disabled = true; knop.textContent = 'Bezig met scannen…'; }
+  uit.innerHTML = '<p class="leeg">Het netwerk wordt afgelopen; dit duurt een paar seconden.</p>';
+  try {
+    const d = await api('/api/netwerk/scan', { method: 'POST', lichaam: {} });
+    netwerkLaatst = d;
+    renderNetwerk(d);
+  } catch (e) {
+    uit.innerHTML = '<p class="fout-tekst">' + esc(e.message) + '</p>';
+  } finally {
+    if (knop) { knop.disabled = false; knop.textContent = 'Opnieuw scannen'; }
+  }
+}
+
+function renderNetwerk(d) {
+  const uit = $('#netwerkuitslag');
+  if (!uit) return;
+  const g = d.gevonden || [];
+  const nieuw = g.filter((x) => !x.bestaat_al);
+  const kop = '<div class="netwerk-kop">'
+    + '<b style="font-size:13.5px">' + g.length + ' adressen op ' + esc(d.subnet.cidr) + '</b>'
+    + chip(nieuw.length + ' nog niet in de lijst', nieuw.length ? 'amber' : 'groen')
+    + '<span class="rechts" style="margin-left:auto;display:flex;gap:8px">'
+    + (nieuw.length ? '<button class="knop primair klein" type="button" id="netwerk-alles">Alle ' + nieuw.length + ' toevoegen</button>' : '')
+    + '</span></div>';
+  const rijen = g.map((x) => {
+    const poorten = (x.poorten && x.poorten.length)
+      ? x.poorten.slice(0, 6).map((p) => '<span class="port"><b>' + p + '</b></span>').join('')
+      : '<span class="chip">geen open poort</span>';
+    return '<label class="netrij' + (x.bestaat_al ? ' zal' : '') + '" style="cursor:' + (x.bestaat_al ? 'default' : 'pointer') + '">'
+      + (x.bestaat_al ? '<span style="width:16px;min-width:16px"></span>' : '<input type="checkbox" name="kip" value="' + esc(x.ip) + '" checked>')
+      + '<span class="kip">' + esc(x.ip) + '</span>'
+      + '<span class="knaam">' + esc(x.naam || x.hostnaam || (x.eigen ? 'deze monitor' : '—')) + '</span>'
+      + '<span class="kpoorten">' + poorten + '</span>'
+      + (x.bestaat_al ? chip('staat er al', 'groen') : '')
+      + '</label>';
+  }).join('');
+  uit.innerHTML = kop + '<div>' + (rijen || '<p class="leeg">Niets gevonden.</p>') + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="knop klein" type="button" id="netwerk-aanvinken">Alles selecteren</button>'
+    + '<button class="knop primair klein" type="button" id="netwerk-voeg">Geselecteerde toevoegen</button></div>'
+    + '<p class="hint">Alleen adressen die antwoorden komen in de lijst. Toevoegen zet ze in de monitor; de eerste scan per host start meteen.</p>';
+
+  const voegToe = async (ips) => {
+    if (!ips.length) { toast('Niets geselecteerd', true); return; }
+    try {
+      const r = await api('/api/netwerk/toevoegen', { method: 'POST', lichaam: { ips, interval_s: 1800 } });
+      toast(r.aantal + ' adres' + (r.aantal === 1 ? '' : 'sen') + ' toegevoegd' + (r.overgeslagen.length ? ', ' + r.overgeslagen.length + ' stond er al' : ''));
+      laadHosts();
+    } catch (e) { toast(e.message, true); }
+  };
+  const alles = $('#netwerk-alles');
+  if (alles) alles.addEventListener('click', () => voegToe(nieuw.map((x) => x.ip)));
+  const aanvink = $('#netwerk-aanvinken');
+  if (aanvink) aanvink.addEventListener('click', () => {
+    uit.querySelectorAll('input[name=kip]').forEach((c) => { c.checked = true; });
+  });
+  const voeg = $('#netwerk-voeg');
+  if (voeg) voeg.addEventListener('click', () => voegToe([...uit.querySelectorAll('input[name=kip]:checked')].map((c) => c.value)));
 }
 
 async function laadHostDetail(ip) {
@@ -1626,6 +1721,21 @@ async function laadInstellingen() {
       + '<div class="form-rij twee"><label class="veld"><span>Huidig wachtwoord</span><input name="huidig_wachtwoord" type="password" autocomplete="current-password"></label>'
       + '<label class="veld"><span>Nieuw wachtwoord</span><input name="wachtwoord" type="password" autocomplete="new-password" minlength="8" placeholder="min. 8 tekens"></label></div>'
       + '<button class="knop primair" type="submit">Opslaan</button></form></div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>GitHub-token</h2><span class="chip ' + (d.github_token === 'ingesteld' ? 'groen' : '') + '">' + esc(d.github_token) + '</span></div><div class="kaart-body">'
+      + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">Nodig voor de Projecten-tab (ook besloten repo&#39;s) en voor het bijwerken. Maak een token op GitHub → Settings → Developer settings → Personal access tokens met <b>repo</b> (en <b>read:user</b>). Het token wordt in de database bewaard en nooit teruggetoond.</p>'
+      + '<form id="ghform"><label class="veld"><span>Token' + (d.github_login ? ' (nu: ' + esc(d.github_login) + (d.github_scopes ? ' · ' + esc(d.github_scopes) : '') + ')' : '') + '</span>'
+      + '<input name="github_token" type="password" placeholder="' + (d.github_token === 'ingesteld' ? 'laat leeg om te behouden' : 'ghp_... of github_pat_...') + '" autocomplete="off" spellcheck="false"></label>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="knop primair" type="submit">Opslaan en testen</button>'
+      + (d.github_token === 'ingesteld' ? '<button class="knop gevaar" type="button" id="gh-weg">Token verwijderen</button>' : '') + '</div></form>'
+      + (d.github_token_bron ? '<p class="hint">Bron: ' + (d.github_token_bron === 'dashboard' ? 'ingesteld in dit dashboard' : 'omgevingsvariabele GITHUB_TOKEN') + '</p>' : '')
+      + (d.projecten_fout ? '<p class="hint" style="color:var(--red)">' + esc(d.projecten_fout) + '</p>' : '')
+      + '</div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Bijwerken</h2><span class="chip" id="upd-chip">' + esc(d.update_versie || d.versie) + '</span></div><div class="kaart-body">'
+      + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">Haalt de nieuwste versie van GitHub en vervangt de programmabestanden; je gegevens blijven staan. Daarna start de dienst zichzelf opnieuw.</p>'
+      + '<div id="upd-uitslag"><p class="hint" style="margin:0">Nu: versie <b>' + esc(d.update_versie || d.versie) + '</b>' + (d.update_sha ? ' · ' + esc(String(d.update_sha).slice(0, 7)) : '') + '</p></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="knop" type="button" id="upd-check">Controleer op updates</button>'
+      + '<button class="knop primair" type="button" id="upd-doe" disabled>Nu bijwerken</button></div>'
+      + '</div></div>'
       + '<div class="kaart"><div class="kaart-kop"><h2>Systeem</h2></div><div class="kaart-body">'
       + '<div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted)">'
       + '<div>Versie <b style="color:var(--txt)">' + esc(d.versie) + '</b></div>'
@@ -1659,6 +1769,45 @@ async function laadInstellingen() {
       try { await api('/api/slack/test', { method: 'POST' }); toast('Testbericht verstuurd'); }
       catch (err) { toast(err.message, true); }
       finally { knop.disabled = false; knop.textContent = 'Testbericht'; }
+    });
+    $('#ghform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const knop = e.target.querySelector('button[type=submit]');
+      knop.disabled = true; knop.textContent = 'Controleren…';
+      try {
+        const r = await api('/api/instellingen', { method: 'PATCH', lichaam: { github_token: f.get('github_token') || '' } });
+        toast('Token opgeslagen' + (r.github_login ? ' als ' + r.github_login : ''));
+        laadInstellingen();
+      } catch (err) { toast(err.message, true); knop.disabled = false; knop.textContent = 'Opslaan en testen'; }
+    });
+    const ghWeg = $('#gh-weg');
+    if (ghWeg) ghWeg.addEventListener('click', async () => {
+      try { await api('/api/instellingen', { method: 'PATCH', lichaam: { github_token: '' } }); toast('Token verwijderd'); laadInstellingen(); }
+      catch (err) { toast(err.message, true); }
+    });
+    $('#upd-check').addEventListener('click', async () => {
+      const knop = $('#upd-check');
+      knop.disabled = true; knop.textContent = 'Kijken…';
+      try {
+        const r = await api('/api/update/controleer', { method: 'POST' });
+        $('#upd-uitslag').innerHTML = r.nieuw
+          ? '<p style="margin:0;font-size:13.5px">Nieuw op GitHub: <b>' + esc(String(r.laatste.kort || '')) + '</b> — ' + esc(r.laatste.bericht || '') + (r.laatste.datum ? '<br><span class="hint" style="margin:0">' + geleden(r.laatste.datum) + '</span>' : '') + '</p>'
+          : '<p style="margin:0;font-size:13.5px;color:var(--green)">Je draait al de nieuwste versie.</p>';
+        $('#upd-doe').disabled = !r.nieuw;
+      } catch (err) { toast(err.message, true); }
+      finally { knop.disabled = false; knop.textContent = 'Controleer op updates'; }
+    });
+    $('#upd-doe').addEventListener('click', async () => {
+      if (!confirm('Nu bijwerken? De dienst herstart daarna vanzelf.')) return;
+      const knop = $('#upd-doe');
+      knop.disabled = true; knop.textContent = 'Bijwerken…';
+      try {
+        const r = await api('/api/update/uitvoeren', { method: 'POST' });
+        toast(r.al_actueel ? 'Al de nieuwste versie' : 'Bijgewerkt; de dienst herstart…');
+        $('#upd-uitslag').innerHTML = '<p style="margin:0;font-size:13.5px">Bijgewerkt naar <b>' + esc(String(r.sha || '').slice(0, 7)) + '</b>. De pagina ververst over een paar seconden.</p>';
+        setTimeout(() => location.reload(), 6000);
+      } catch (err) { toast(err.message, true); knop.disabled = false; knop.textContent = 'Nu bijwerken'; }
     });
     $('#wwform').addEventListener('submit', async (e) => {
       e.preventDefault();
