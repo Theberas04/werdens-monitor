@@ -93,19 +93,19 @@ id -u werdens >/dev/null 2>&1 && chown -R werdens:werdens "$MAP" 2>/dev/null || 
 if [ -f "$UNIT" ]; then
   if grep -q '^ReadWritePaths=' "$UNIT" && ! grep -qx "ReadWritePaths=$MAP" "$UNIT"; then
     zeg "Systemd-unit repareren: schrijfrechten op $MAP"
-    if [ "$DROOG" = "1" ]; then
+    if [ "${DROOG:-0}" = "1" ]; then
       echo "   [droog] ReadWritePaths=$MAP in $UNIT"
     else
       sed -i "s|^ReadWritePaths=.*|ReadWritePaths=$MAP|" "$UNIT"
-      systemctl daemon-reload
+      systemctl daemon-reload 2>/dev/null || zeg "Let op: daemon-reload mislukt; herstart de dienst met de hand"
     fi
   elif grep -q '^ProtectSystem=strict' "$UNIT" && ! grep -q '^ReadWritePaths=' "$UNIT"; then
     zeg "Systemd-unit repareren: ReadWritePaths toevoegen"
-    if [ "$DROOG" = "1" ]; then
+    if [ "${DROOG:-0}" = "1" ]; then
       echo "   [droog] ReadWritePaths=$MAP toevoegen aan $UNIT"
     else
       sed -i "/^ProtectSystem=strict/a ReadWritePaths=$MAP" "$UNIT"
-      systemctl daemon-reload
+      systemctl daemon-reload 2>/dev/null || zeg "Let op: daemon-reload mislukt; herstart de dienst met de hand"
     fi
   fi
 fi
