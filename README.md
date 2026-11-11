@@ -141,6 +141,14 @@ dienst; de database blijft staan:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/bijwerken.sh)"
 ```
 
+De raw-URL van GitHub heeft een cache van een paar minuten. Krijg je na een
+nieuwe release nog de oude versie, gebruik dan een commit-URL in plaats van
+`refs/heads/main`:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/<commit>/deploy/bijwerken.sh)"
+```
+
 Staat de app in een LXC, dan vanaf de Proxmox-host:
 
 ```bash
