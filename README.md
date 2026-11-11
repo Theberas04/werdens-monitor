@@ -28,6 +28,35 @@ en de sites die erop draaien.
 **Poortscan** — een IP aftasten op de gebruikelijke poorten meteen bij het
 aanmaken van een ticket, zodat de agent weet wat er open staat.
 
+## Welke Checkmk-functies zitten erin
+
+Geen Checkmk-code, wel hetzelfde idee: hosts met diensten, toestanden, meldingen
+en een gebeurtenissenlog. Wat hieronder "ja" staat is gebouwd en getest; "nee"
+is bewust niet gedaan, met de reden erbij.
+
+| Checkmk-functie | Hier | Toelichting |
+|---|---|---|
+| Hosts beheren | ja | eigen IP-lijst met naam, notitie, locatie en labels |
+| Diensten per host | ja | poortscan → HTTP, TLS, SSH, database, Redis enz. met toestand |
+| Status OK/WAARSCHUWING/KRITIEK/ONBEKEND | ja | per dienst en opgerold naar host en dashboard |
+| Check-plugins (agentloos) | ja | HTTP(S), headers, TLS-vervaldatum, TCP-connect |
+| Klassieke Checkmk-agent | nee | vergt een agent per host; de scan geeft dezelfde informatie zonder installatie |
+| SNMP | nee | kan later met een eigen plugin; nu geen apparatuur in beheer |
+| Meldingen (mail/SMS) | deels | storingen in dashboard en log; webhook naar Slack kan erbij |
+| Onderhoudsvensters (downtime) | ja | per IP met eindtijd en reden; host wordt niet gescand of gemeld |
+| Bevestigen (acknowledge) | ja | alert als bekend markeren met je naam |
+| Gebeurtenissenlog | ja | alert, opgelost, onderhoud, configuratiewijziging, met tijd en IP |
+| Beschikbaarheid / SLA | ja | uptime over 24 uur uit bewaarde controles |
+| Grafieken / metriekhistorie | deels | responstijden bewaard per meting; nog geen grafiekweergave |
+| Views en dashboards | ja | eigen dashboard met KPI's, storingen en recente gebeurtenissen |
+| Meerdere locaties (distributed) | nee | één installatie; wel een locatielabel per host |
+| Gebruikers en rollen | deels | één beheerder met sessie-cookie; geen rolbomen |
+| Audit-log | ja | gebeurtenissenlog bewaart wie wat wijzigde |
+| REST-API | ja | `/api/*` met sessie-cookie, plus agent-API met token |
+| Certificaatbewaking | ja | dagen tot verval per site en per host-poort |
+| Voorraad (hardware/software) | nee | buiten scope; wel versie per site en per GitHub-repo |
+| BI / voorspellingen | nee | geen historiek lang genoeg op dagbasis |
+
 ## Schermen
 
 | Overzicht | Projecten |
@@ -41,6 +70,10 @@ aanmaken van een ticket, zodat de agent weet wat er open staat.
 | Instellingen | Mobiel |
 |---|---|
 | ![](docs/img/instellingen-desktop.png) | ![](docs/img/overzicht-mobiel.png) |
+
+| IP-adressen | Hostdetail |
+|---|---|
+| ![](docs/img/hosts-desktop.png) | ![](docs/img/host-detail-desktop.png) |
 
 Een rondleiding door de app: **[demo-video (42 s, 1440×900)](docs/video/werdens-monitor-demo.mp4)**.
 
