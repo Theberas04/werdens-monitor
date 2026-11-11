@@ -1727,7 +1727,7 @@ async function laadInstellingen() {
       + '<input name="github_token" type="password" placeholder="' + (d.github_token === 'ingesteld' ? 'laat leeg om te behouden' : 'ghp_... of github_pat_...') + '" autocomplete="off" spellcheck="false"></label>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="knop primair" type="submit">Opslaan en testen</button>'
       + (d.github_token === 'ingesteld' ? '<button class="knop gevaar" type="button" id="gh-weg">Token verwijderen</button>' : '') + '</div></form>'
-      + (d.github_token_bron ? '<p class="hint">Bron: ' + (d.github_token_bron === 'dashboard' ? 'ingesteld in dit dashboard' : 'omgevingsvariabele GITHUB_TOKEN') + '</p>' : '')
+      + (d.github_token_bron ? '<p class="hint">Bron: ' + esc({ dashboard: 'ingesteld in dit dashboard', omgeving: 'omgevingsvariabele GITHUB_TOKEN', 'gh-config': 'de gh-CLI op deze machine' }[d.github_token_bron] || d.github_token_bron) + '</p>' : '')
       + (d.projecten_fout ? '<p class="hint" style="color:var(--red)">' + esc(d.projecten_fout) + '</p>' : '')
       + '</div></div>'
       + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Bijwerken</h2><span class="chip" id="upd-chip">' + esc(d.update_versie || d.versie) + '</span></div><div class="kaart-body">'

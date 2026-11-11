@@ -1119,7 +1119,7 @@ async function verwerk(req, res) {
       projecten_op: instelling('projecten_op'),
       projecten_fout: instelling('projecten_fout'),
       github_token: github.token() ? 'ingesteld' : 'niet ingesteld',
-      github_token_bron: instelling('github_token') ? 'dashboard' : (process.env.GITHUB_TOKEN ? 'omgeving' : ''),
+      github_token_bron: github.tokenBron(),
       github_login: instelling('github_login'),
       github_scopes: instelling('github_scopes'),
       update_versie: update.lokaal().versie,
