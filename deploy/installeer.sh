@@ -20,16 +20,28 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# Node 22.5+ heeft node:sqlite nodig; ouder werkt niet.
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node ontbreekt. Installeer Node 22 (bijv. via nodesource) en probeer opnieuw." >&2
-  exit 1
+# Node 22.5+ heeft node:sqlite nodig; ouder werkt niet. Ontbreekt Node, dan
+# installeren we versie 22 via NodeSource — de gebruiker hoeft niets vooraf te
+# doen. Is er geen apt (geen Debian/Ubuntu), dan stoppen we met een duidelijke
+# melding in plaats van halverwege te falen.
+node_ok() {
+  command -v node >/dev/null 2>&1 || return 1
+  [ "$(node -p 'Number(process.versions.node.split(".")[0])*100+Number(process.versions.node.split(".")[1])' 2>/dev/null)" -ge 2205 ]
+}
+if ! node_ok; then
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Node 22.5+ ontbreekt of is te oud; Node 22 wordt geïnstalleerd via NodeSource." >&2
+    apt-get update -qq
+    apt-get install -y -qq curl ca-certificates gnupg
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y -qq nodejs
+  fi
+  if ! node_ok; then
+    echo "Node 22.5 of nieuwer installeren is niet gelukt. Installeer Node 22 (bijv. via https://deb.nodesource.com/setup_22.x) en probeer opnieuw." >&2
+    exit 1
+  fi
 fi
-NODE_MM="$(node -p 'process.versions.node.split(".").slice(0,2).join(".")')"
-if [ "$(node -p 'Number(process.versions.node.split(".")[0])*100+Number(process.versions.node.split(".")[1])')" -lt 2205 ]; then
-  echo "Node $NODE_MM is te oud; 22.5 of nieuwer is nodig (node:sqlite)." >&2
-  exit 1
-fi
+echo "Node $(node -v) gevonden."
 
 if ! command -v git >/dev/null 2>&1; then
   apt-get update -qq && apt-get install -y -qq git ca-certificates
