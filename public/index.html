@@ -1728,7 +1728,7 @@ function renderHosts(d) {
     + '</form></div></details>';
 
   const alerts = (d.alerts && d.alerts.length)
-    ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts">'
+    ? '<div class="kaart" id="storingen-kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts">'
       + chip(d.alerts.length + ' open', 'amber') + '<button class="knop klein" data-ga="meldingen">Alle meldingen</button></div></div>'
       + '<div class="kaart-body alerts">' + d.alerts.slice(0, 3).map((a) =>
         '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht)
@@ -1793,6 +1793,9 @@ function koppelHosts() {
     if (tel) tel.textContent = hostTelling(hostsLaatst);
     const kop = $('#host-teller');
     if (kop) kop.textContent = hostZoek ? hostTelling(hostsLaatst) : hostsCache.length + ' adressen';
+    // Tijdens het zoeken gaat de storingen-kaart weg: dan wil je alleen de treffers zien.
+    const stor = $('#storingen-kaart');
+    if (stor) stor.style.display = String(hostZoek || '').trim() ? 'none' : '';
     koppelHostKaarten();
   });
 }
