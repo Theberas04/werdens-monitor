@@ -26,7 +26,10 @@ if [ "${DROOG:-0}" = "1" ]; then
   pct() { if [ "$1" = "status" ]; then return 1; fi; echo "   [droog] pct $*"; }
   pveam() {
     case "${1:-}" in
-      available) echo "system          debian-13-standard_13.1-2_amd64.tar.zst" ;;
+      available)
+        echo "system          debian-13-standard_13.1-2_amd64.tar.zst"
+        echo "system          debian-12-standard_12.7-1_amd64.tar.zst"
+        ;;
       list) : ;;
       *) echo "   [droog] pveam $*" ;;
     esac
@@ -70,7 +73,16 @@ fi
 TMPL_OPSLAG="$(pvesm status --content vztmpl 2>/dev/null | awk 'NR>1 && $3=="active" {print $1; exit}')"
 [ -n "$TMPL_OPSLAG" ] || TMPL_OPSLAG="local"
 pveam update >/dev/null 2>&1 || true
-TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E '^debian-1[23]-standard' | sort -V | tail -1 || true)"
+# Kies de Debian-versie die bij deze Proxmox past: PVE 8 = Debian 12, PVE 9 =
+# Debian 13. Een Debian 13-template op een PVE 8-host start niet ("Failed to
+# spawn container"), en dat is precies de valkuil als je blind de nieuwste pakt.
+PVE_MAJOR="$(pveversion 2>/dev/null | sed -nE 's#^pve-manager/([0-9]+).*#\1#p' | head -1)"
+[ -n "$PVE_MAJOR" ] || PVE_MAJOR=8
+if [ "$PVE_MAJOR" -ge 9 ]; then DEB=13; else DEB=12; fi
+TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E "^debian-${DEB}-standard" | sort -V | tail -1 || true)"
+if [ -z "$TEMPLATE" ]; then
+  TEMPLATE="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E '^debian-1[23]-standard' | sort -V | tail -1 || true)"
+fi
 if [ -z "$TEMPLATE" ]; then
   echo "Geen Debian-template gevonden. Draai eerst 'pveam update' op de host." >&2
   exit 1
@@ -101,7 +113,15 @@ doe pct create "$CTID" "$TMPL_OPSLAG:vztmpl/$TEMPLATE" \
   --password "$ROOT_WW" \
   --description "Werdens Monitor — infra- en websitedashboard (Werdens Media)"
 
-doe pct start "$CTID"
+if ! doe pct start "$CTID"; then
+  echo "Container $CTID wilde niet starten. Dit is meestal een verkeerde of half" >&2
+  echo "gedownloade template. Probeer:" >&2
+  echo "  pct destroy $CTID" >&2
+  echo "  rm -f /var/lib/vz/template/cache/$TEMPLATE" >&2
+  echo "  bash maak-lxc.sh" >&2
+  echo "Of bekijk het echte logboek: pct start $CTID --debug" >&2
+  exit 1
+fi
 zeg "Wachten tot de container op het netwerk is"
 if [ "${DROOG:-0}" != "1" ]; then
   for _ in $(seq 1 60); do
