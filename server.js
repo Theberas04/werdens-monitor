@@ -1484,7 +1484,9 @@ async function verwerk(req, res) {
   if (pad === '/api/problemen' && methode === 'GET') {
     const open = hosts.openAlerts().map((a) => {
       const host = a.ip && a.ip.startsWith('site:') ? null : db.prepare('SELECT naam, hostnaam FROM hosts WHERE ip=?').get(a.ip);
-      const naam = host ? (host.naam || host.hostnaam || a.ip) : (a.ip || '').replace(/^site:/, 'site ');
+      // Apparaten gebruiken 'apparaat:<naam>' als sleutel; laat alleen de naam zien.
+      const naam = a.ip && a.ip.startsWith('apparaat:') ? a.ip.slice('apparaat:'.length)
+        : host ? (host.naam || host.hostnaam || a.ip) : (a.ip || '').replace(/^site:/, 'site ');
       return {
         ...a,
         ernst: a.ernst || ernstVan(a.soort),
