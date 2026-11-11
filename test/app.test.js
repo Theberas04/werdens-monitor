@@ -73,8 +73,14 @@ test('zonder sessie geen gegevens, maar wel de inlogpagina', async () => {
   const pagina = await verzoek('/');
   assert.equal(pagina.status, 200);
   assert.match(await pagina.text(), /Werdens Monitor/);
-  const statisch = await verzoek('/favicon.svg');
-  assert.equal(statisch.status, 302, 'assets pas na inloggen');
+  // Merk- en PWA-bestanden zijn bewust openbaar (logo op de inlogpagina).
+  const merk = await verzoek('/assets/werdens-media-logo.png');
+  assert.equal(merk.status, 200, 'logo moet zonder sessie laden');
+  const favicon = await verzoek('/favicon.svg');
+  assert.equal(favicon.status, 200, 'favicon is openbaar');
+  // Alles buiten de merk- en PWA-allowlist blijft achter de login.
+  const statisch = await verzoek('/sw.js');
+  assert.equal(statisch.status, 302, 'overige bestanden pas na inloggen');
 });
 
 test('inloggen met het verkeerde en het juiste wachtwoord', async () => {

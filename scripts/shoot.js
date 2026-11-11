@@ -17,6 +17,7 @@ const TABS = [
   ['overzicht', 'Overzicht'],
   ['projecten', 'Projecten'],
   ['websites', 'Websites'],
+  ['hosts', 'IP-adressen'],
   ['tickets', 'Tickets'],
   ['instellingen', 'Instellingen'],
 ];
@@ -27,7 +28,7 @@ const wacht = (ms) => new Promise((r) => setTimeout(r, ms));
 const chrome = spawn(CHROOM, [
   '--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars',
   '--disable-dev-shm-usage', `--remote-debugging-port=${POORT}`,
-  '--force-device-scale-factor=2', '--window-size=1440,900', 'about:blank',
+  '--window-size=1440,900', 'about:blank',
 ], { env: { ...process.env, LD_LIBRARY_PATH: LIB }, stdio: ['ignore', 'ignore', 'pipe'] });
 
 async function doel() {
@@ -62,7 +63,7 @@ async function doel() {
 
   await stuur('Page.enable');
   await stuur('Runtime.enable');
-  await stuur('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+  await stuur('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await stuur('Page.navigate', { url: BASE });
   await wacht(1400);
   // verse pagina: service worker en cache mogen nooit een oude versie tonen
@@ -97,8 +98,17 @@ async function doel() {
     await schiet(`${id}-desktop.png`);
   }
 
+  // detail van de eerste host, zodat het IP-scherm ook gedocumenteerd is
+  await eval_(`(() => { const b = document.querySelector('nav.tabs button[data-tab="hosts"]'); if (b) b.click(); return true; })()`);
+  await wacht(1600);
+  await eval_(`(() => { const h = document.querySelector('.host'); if (h) { h.click(); return true; } return false; })()`);
+  await wacht(1800);
+  await schiet('host-detail-desktop.png');
+  await eval_(`(() => { const b = document.querySelector('[data-terug]'); if (b) b.click(); return true; })()`);
+  await wacht(1500);
+
   // mobiel: 412×915 (Pixel-formaat), daarna elke tab
-  await stuur('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 2, mobile: true });
+  await stuur('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true });
   await wacht(1200);
   for (const [id] of TABS) {
     await eval_(`(() => { const b = document.querySelector('nav.tabs button[data-tab="${id}"]'); if (b) { b.click(); return true; } return false; })()`);

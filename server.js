@@ -50,7 +50,36 @@ CREATE TABLE IF NOT EXISTS berichten(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, auteur TEXT NOT NULL DEFAULT '',
   rol TEXT NOT NULL DEFAULT 'tom', bericht TEXT NOT NULL, op TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_berichten_ticket ON berichten(ticket_id, id);
+CREATE TABLE IF NOT EXISTS host_controles(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, op TEXT NOT NULL, ok INTEGER NOT NULL,
+  poorten INTEGER NOT NULL DEFAULT 0, ping_ms INTEGER, tls_dagen INTEGER, fout TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_hostcontroles ON host_controles(ip, op DESC);
+CREATE TABLE IF NOT EXISTS alerts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, soort TEXT NOT NULL, bericht TEXT NOT NULL,
+  op TEXT NOT NULL, gezien INTEGER NOT NULL DEFAULT 0, opgelost TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(op DESC);
+CREATE TABLE IF NOT EXISTS onderhoud(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, van TEXT NOT NULL, tot TEXT NOT NULL,
+  reden TEXT NOT NULL DEFAULT '', aangemaakt TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS gebeurtenissen(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, op TEXT NOT NULL, soort TEXT NOT NULL,
+  ip TEXT NOT NULL DEFAULT '', tekst TEXT NOT NULL);
 `);
+
+// Kolommen die later zijn bijgekomen, netjes toevoegen aan een bestaande database.
+function kolomErbij(tabel, kolom, definitie) {
+  const kolommen = db.prepare(`PRAGMA table_info(${tabel})`).all().map((c) => c.name);
+  if (!kolommen.includes(kolom)) db.exec(`ALTER TABLE ${tabel} ADD COLUMN ${kolom} ${definitie}`);
+}
+kolomErbij('hosts', 'hostnaam', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('hosts', 'actief', 'INTEGER NOT NULL DEFAULT 1');
+kolomErbij('hosts', 'interval_s', 'INTEGER NOT NULL DEFAULT 300');
+kolomErbij('hosts', 'ping_ms', 'INTEGER');
+kolomErbij('hosts', 'tls_dagen', 'INTEGER');
+kolomErbij('hosts', 'tls_verloopt', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('hosts', 'ok', 'INTEGER NOT NULL DEFAULT 1');
+kolomErbij('hosts', 'fout', "TEXT NOT NULL DEFAULT ''");
+kolomErbij('hosts', 'aangemaakt', "TEXT NOT NULL DEFAULT ''");
 
 const nu = () => new Date().toISOString();
 function instelling(sleutel, standaard = '') {
@@ -263,6 +292,129 @@ function siteVanBody(body, bestaand = null) {
   };
 }
 
+// ── hosts (IP-adressen) ──────────────────────────────────────────────────────
+// Elk IP-adres is een host met een eigen interval, geschiedenis, status,
+// storingen en onderhoudsvenster. De scan levert alles wat het dashboard nodig
+// heeft: naam, open poorten, diensten met titel, pingtijd en het certificaat.
+const parseJson = (waarde, standaard) => {
+  try { const u = JSON.parse(waarde); return u === null || u === undefined ? standaard : u; } catch { return standaard; }
+};
+
+function meld(ip, soort, bericht) {
+  const bestaat = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND bericht=? AND opgelost=''").get(ip, soort, bericht);
+  if (bestaat) return;
+  db.prepare('INSERT INTO alerts(ip,soort,bericht,op) VALUES(?,?,?,?)').run(ip, soort, bericht, nu());
+  db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(nu(), 'alert', ip, bericht);
+}
+function losOp(ip, soort) {
+  const open = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND opgelost=''").all(ip, soort);
+  for (const a of open) {
+    db.prepare('UPDATE alerts SET opgelost=? WHERE id=?').run(nu(), a.id);
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(nu(), 'opgelost', ip, soort + ' opgelost');
+  }
+}
+
+const hosts = {
+  lijst() { return db.prepare('SELECT * FROM hosts ORDER BY ip').all(); },
+  een(ip) { return db.prepare('SELECT * FROM hosts WHERE ip=?').get(String(ip || '').trim()); },
+  geschiedenis(ip, aantal = 40) {
+    return db.prepare('SELECT * FROM host_controles WHERE ip=? ORDER BY id DESC LIMIT ?').all(ip, aantal).reverse();
+  },
+  uptime(ip, uren = 24) {
+    const grens = new Date(Date.now() - uren * 3600e3).toISOString();
+    const r = db.prepare('SELECT COUNT(*) n, SUM(ok) goed FROM host_controles WHERE ip=? AND op>=?').get(ip, grens);
+    if (!r || !r.n) return null;
+    return Math.round((r.goed || 0) / r.n * 1000) / 10;
+  },
+  onderhoud(ip) {
+    return db.prepare('SELECT * FROM onderhoud WHERE ip=? AND tot>=? ORDER BY tot DESC').all(ip, nu());
+  },
+  alerts(ip, alleenOpen = true) {
+    const waar = alleenOpen ? "AND opgelost=''" : '';
+    return db.prepare('SELECT * FROM alerts WHERE ip=? ' + waar + ' ORDER BY id DESC').all(ip);
+  },
+  openAlerts() {
+    return db.prepare(`SELECT a.*, h.naam hostnaam FROM alerts a LEFT JOIN hosts h ON h.ip=a.ip
+      WHERE a.opgelost='' ORDER BY CASE a.soort WHEN 'host neer' THEN 0 ELSE 1 END, a.id DESC`).all();
+  },
+  sitesOp(ip) {
+    return sites.lijst().filter((s) => {
+      if (s.ip === ip) return true;
+      try { return new URL(s.url).hostname === ip; } catch { return false; }
+    }).map((s) => siteBeeld(s));
+  },
+  bewaarScan(uit) {
+    const vorige = hosts.een(uit.ip);
+    const oudePoorten = parseJson(vorige && vorige.poorten, []);
+    const tls = uit.tls || {};
+    const fout = uit.ok ? '' : 'Geen open poorten';
+    db.prepare(`INSERT INTO hosts(ip,naam,hostnaam,laatste_scan,poorten,diensten,ping_ms,tls_dagen,tls_verloopt,ok,fout,aangemaakt)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(ip) DO UPDATE SET hostnaam=excluded.hostnaam, laatste_scan=excluded.laatste_scan,
+        poorten=excluded.poorten, diensten=excluded.diensten, ping_ms=excluded.ping_ms,
+        tls_dagen=excluded.tls_dagen, tls_verloopt=excluded.tls_verloopt, ok=excluded.ok, fout=excluded.fout`)
+      .run(uit.ip, '', uit.hostnaam || '', uit.op, JSON.stringify(uit.poorten), JSON.stringify(uit.diensten),
+        uit.ping_ms === null ? null : uit.ping_ms, tls.dagen === undefined ? null : tls.dagen,
+        tls.verloopt || '', uit.ok ? 1 : 0, fout, nu());
+    db.prepare('INSERT INTO host_controles(ip,op,ok,poorten,ping_ms,tls_dagen,fout) VALUES(?,?,?,?,?,?,?)')
+      .run(uit.ip, uit.op, uit.ok ? 1 : 0, uit.poorten.length, uit.ping_ms === null ? null : uit.ping_ms,
+        tls.dagen === undefined ? null : tls.dagen, fout);
+    if (vorige && vorige.laatste_scan) {
+      if (vorige.ok && !uit.ok) meld(uit.ip, 'host neer', 'Host is niet meer bereikbaar (geen open poorten)');
+      if (!vorige.ok && uit.ok) { meld(uit.ip, 'host online', 'Host is weer bereikbaar'); losOp(uit.ip, 'host neer'); }
+      const nieuw = uit.poorten.filter((p) => !oudePoorten.includes(p));
+      const weg = oudePoorten.filter((p) => !uit.poorten.includes(p));
+      if (nieuw.length) meld(uit.ip, 'poort open', 'Nieuwe open poort(en): ' + nieuw.join(', '));
+      if (weg.length) meld(uit.ip, 'poort dicht', 'Poort(en) dicht: ' + weg.join(', '));
+    }
+    if (typeof tls.dagen === 'number' && tls.dagen < 14) {
+      meld(uit.ip, 'certificaat', 'TLS-certificaat verloopt over ' + tls.dagen + ' dagen');
+    }
+    return { uit, vorige };
+  },
+  async scan(ip) {
+    const uit = await scanHost(ip);
+    return hosts.bewaarScan(uit);
+  },
+  status(host) {
+    if (!host || !host.laatste_scan) return 'onbekend';
+    if (hosts.onderhoud(host.ip).length) return 'onderhoud';
+    return host.ok ? 'ok' : 'neer';
+  },
+  beeld(host, uitgebreid = false) {
+    const laatsteScan = host.laatste_scan || '';
+    const onderhoud = hosts.onderhoud(host.ip);
+    const sitesOpHost = hosts.sitesOp(host.ip);
+    const openTickets = tickets.lijst('WHERE t.ip=? AND t.status IN (\'open\',\'in behandeling\',\'wacht op Tom\')', [host.ip]);
+    const uit = {
+      ip: host.ip, naam: host.naam || '', hostnaam: host.hostnaam || '', notitie: host.notitie || '',
+      actief: !!host.actief, interval_s: host.interval_s, laatste_scan: laatsteScan,
+      ok: !!host.ok, fout: host.fout || '', ping_ms: host.ping_ms, tls_dagen: host.tls_dagen,
+      tls_verloopt: host.tls_verloopt || '', poorten: parseJson(host.poorten, []),
+      diensten: parseJson(host.diensten, []), status: hosts.status(host),
+      onderhoud, uptime24: hosts.uptime(host.ip), sites: sitesOpHost,
+      tickets_open: openTickets.length, alerts: hosts.alerts(host.ip),
+    };
+    if (uitgebreid) uit.geschiedenis = hosts.geschiedenis(host.ip);
+    return uit;
+  },
+};
+
+function hostVanBody(body, bestaand = null) {
+  const ip = tekst(body.ip, 60);
+  if (!ip) throw new Error('IP-adres is verplicht');
+  if (!geldigIp(ip)) throw new Error('Geen geldig IP-adres');
+  if (!bestaand && hosts.een(ip)) throw new Error('Dit IP-adres staat er al');
+  const interval = Math.min(86400, Math.max(60, Number(body.interval_s) || (bestaand && bestaand.interval_s) || 300));
+  return {
+    ip,
+    naam: tekst(body.naam, 80) || (bestaand && bestaand.naam) || '',
+    notitie: tekst(body.notitie, 300) || (bestaand && bestaand.notitie) || '',
+    interval_s: interval,
+    actief: body.actief === undefined ? (bestaand ? bestaand.actief : 1) : (body.actief ? 1 : 0),
+  };
+}
+
 // ── tickets ──────────────────────────────────────────────────────────────────
 const STATUSSEN = ['open', 'in behandeling', 'wacht op Tom', 'opgelost', 'gesloten'];
 const PRIORITEITEN = ['laag', 'normaal', 'hoog', 'kritiek'];
@@ -282,17 +434,13 @@ const tickets = {
     db.prepare('UPDATE tickets SET bijgewerkt=? WHERE id=?').run(nu(), Number(id));
   },
   context(ticket) {
-    const host = ticket.ip ? db.prepare('SELECT * FROM hosts WHERE ip=?').get(ticket.ip) : null;
-    let poorten = [];
-    let diensten = [];
-    try { poorten = host && host.poorten ? JSON.parse(host.poorten) : []; } catch { poorten = []; }
-    try { diensten = host && host.diensten ? JSON.parse(host.diensten) : []; } catch { diensten = []; }
+    const hostRij = ticket.ip ? hosts.een(ticket.ip) : null;
     const passendeSites = sites.lijst().filter((s) => s.ip === ticket.ip || (s.url || '').includes(ticket.ip)).map((s) => {
       const l = sites.laatste(s.id);
       return { naam: s.naam, url: s.url, ok: l ? !!l.ok : null, code: l && l.code, ms: l && l.ms, versie: l && l.versie, op: l && l.op };
     });
     return {
-      ip: ticket.ip, host: host ? { naam: host.naam, notitie: host.notitie, laatste_scan: host.laatste_scan, poorten, diensten } : null,
+      ip: ticket.ip, host: hostRij ? hosts.beeld(hostRij) : null,
       sites: passendeSites,
       projecten: db.prepare('SELECT naam,versie,commit_sha,ci_status,bijgewerkt FROM projecten ORDER BY bijgewerkt DESC LIMIT 20').all(),
     };
@@ -324,6 +472,22 @@ async function meetRonde() {
     }
     db.prepare("DELETE FROM controles WHERE op < ?").run(new Date(Date.now() - 30 * 86400e3).toISOString());
   } finally { meetBezig = false; }
+}
+
+let hostBezig = false;
+async function hostRonde() {
+  if (hostBezig) return;
+  hostBezig = true;
+  try {
+    for (const h of hosts.lijst()) {
+      if (!h.actief) continue;
+      if (hosts.onderhoud(h.ip).length) continue;      // in onderhoud: niet scannen
+      const volgende = h.laatste_scan ? new Date(h.laatste_scan).getTime() + (h.interval_s || 300) * 1000 : 0;
+      if (Date.now() < volgende) continue;
+      try { await hosts.scan(h.ip); } catch (e) { console.error('Scan mislukt voor ' + h.ip + ': ' + e.message); }
+    }
+    db.prepare('DELETE FROM host_controles WHERE op < ?').run(new Date(Date.now() - 30 * 86400e3).toISOString());
+  } finally { hostBezig = false; }
 }
 
 let ververstBezig = false;
@@ -367,10 +531,17 @@ function overzicht() {
   const open = ticketLijst.filter((t) => ['open', 'in behandeling', 'wacht op Tom'].includes(t.status));
   const neer = siteLijst.filter((s) => s.actief && (!s.laatste || !s.laatste.ok));
   const projectenLijst = projecten.lijst();
+  const hostRijen = hosts.lijst();
+  const hostBeelden = hostRijen.map((h) => hosts.beeld(h));
+  const alertsOpen = hosts.openAlerts();
   const weekGrens = Date.now() - 7 * 86400e3;
   return {
     samenvatting: {
       sites: siteLijst.length, sites_ok: siteLijst.length - neer.length, sites_neer: neer.length,
+      hosts: hostRijen.length,
+      hosts_ok: hostBeelden.filter((h) => h.status === 'ok').length,
+      hosts_neer: hostBeelden.filter((h) => h.status === 'neer').length,
+      alerts_open: alertsOpen.length,
       projecten: projectenLijst.length,
       projecten_actief: projectenLijst.filter((p) => p.commit_datum && new Date(p.commit_datum).getTime() > weekGrens).length,
       projecten_ci_fout: projectenLijst.filter((p) => p.ci_status === 'failure').length,
@@ -379,6 +550,8 @@ function overzicht() {
       projecten_op: instelling('projecten_op'), projecten_fout: instelling('projecten_fout'),
     },
     sites: siteLijst, tickets: open.slice(0, 6), projecten: projectenLijst.slice(0, 6),
+    hosts: hostBeelden, alerts: alertsOpen.slice(0, 8),
+    gebeurtenissen: db.prepare('SELECT * FROM gebeurtenissen ORDER BY id DESC LIMIT 6').all(),
   };
 }
 
@@ -416,8 +589,13 @@ async function verwerk(req, res) {
   if (!isBeheerder(req)) {
     if (pad.startsWith('/api/')) return fout(res, 401, 'Niet ingelogd');
     if (methode === 'GET' || methode === 'HEAD') {
-      // de pagina zelf is de inlogpagina; de app verbergt alles tot je inlogt
+      // de pagina zelf is de inlogpagina; de app verbergt alles tot je inlogt.
+      // Merk- en PWA-bestanden zijn openbaar: het logo op de inlogpagina moet
+      // laden zonder sessie, anders blijft het een kapot beeld.
       if (pad === '/' || pad === '/index.html') return statisch(req, res, '/index.html');
+      if (/^\/(assets\/|icon-\d+\.png$|apple-touch-icon\.png$|favicon\.svg$|manifest\.webmanifest$)/.test(pad)) {
+        return statisch(req, res, pad);
+      }
       return stuur(res, 302, '', { location: '/' });
     }
     return fout(res, 401, 'Niet ingelogd');
@@ -541,20 +719,110 @@ async function verwerk(req, res) {
     }
   }
 
+  // ── IP-adressen ────────────────────────────────────────────────────────────
+  if (pad === '/api/hosts' && methode === 'GET') {
+    const rijen = hosts.lijst();
+    return json(res, 200, {
+      hosts: rijen.map((h) => hosts.beeld(h)),
+      alerts: hosts.openAlerts(),
+    });
+  }
+  if (pad === '/api/hosts' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    let host;
+    try { host = hostVanBody(body); } catch (e) { return fout(res, 400, e.message); }
+    db.prepare(`INSERT INTO hosts(ip,naam,notitie,interval_s,actief,aangemaakt) VALUES(?,?,?,?,?,?)`)
+      .run(host.ip, host.naam, host.notitie, host.interval_s, host.actief, nu());
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+      .run(nu(), 'host toegevoegd', host.ip, 'Host ' + host.ip + ' toegevoegd');
+    // Meteen scannen: het dashboard hoort na het toevoegen al gevuld te zijn.
+    try { await hosts.scan(host.ip); } catch (e) { console.error('Eerste scan mislukt voor ' + host.ip + ': ' + e.message); }
+    return json(res, 201, { host: hosts.beeld(hosts.een(host.ip), true) });
+  }
+  if (delen[1] === 'hosts' && delen[2] && delen[2] !== 'scan') {
+    const ip = decodeURIComponent(delen[2]);
+    const host = hosts.een(ip);
+    if (!host) return fout(res, 404, 'Dit IP-adres staat niet in de lijst');
+    if (methode === 'GET' && !delen[3]) {
+      return json(res, 200, {
+        host: hosts.beeld(host, true),
+        tickets: tickets.lijst('WHERE t.ip=?', [ip]),
+        gebeurtenissen: db.prepare('SELECT * FROM gebeurtenissen WHERE ip=? ORDER BY id DESC LIMIT 40').all(ip),
+        onderhoud: db.prepare('SELECT * FROM onderhoud WHERE ip=? ORDER BY tot DESC').all(ip),
+      });
+    }
+    if (methode === 'PATCH' && !delen[3]) {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      let nieuw;
+      try { nieuw = hostVanBody({ ...body, ip }, host); } catch (e) { return fout(res, 400, e.message); }
+      db.prepare('UPDATE hosts SET naam=?, notitie=?, interval_s=?, actief=? WHERE ip=?')
+        .run(nieuw.naam, nieuw.notitie, nieuw.interval_s, nieuw.actief, ip);
+      return json(res, 200, { host: hosts.beeld(hosts.een(ip), true) });
+    }
+    if (methode === 'DELETE' && !delen[3]) {
+      for (const tabel of ['host_controles', 'alerts', 'onderhoud', 'hosts']) {
+        db.prepare(`DELETE FROM ${tabel} WHERE ip=?`).run(ip);
+      }
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'host verwijderd', ip, 'Host ' + ip + ' verwijderd');
+      return json(res, 200, { ok: true });
+    }
+    if (methode === 'POST' && delen[3] === 'scan') {
+      try {
+        const { uit } = await hosts.scan(ip);
+        return json(res, 200, { scan: uit, host: hosts.beeld(hosts.een(ip), true) });
+      } catch (e) { return fout(res, 400, e.message); }
+    }
+    if (methode === 'POST' && delen[3] === 'onderhoud') {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      const van = tekst(body.van, 40) || nu();
+      const tot = tekst(body.tot, 40);
+      if (!tot) return fout(res, 400, 'Eindtijd is verplicht');
+      if (new Date(tot).getTime() <= Date.now()) return fout(res, 400, 'Eindtijd moet in de toekomst liggen');
+      db.prepare('INSERT INTO onderhoud(ip,van,tot,reden,aangemaakt) VALUES(?,?,?,?,?)')
+        .run(ip, van, tot, tekst(body.reden, 200), nu());
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'onderhoud', ip, 'Onderhoud tot ' + tot);
+      return json(res, 201, { onderhoud: db.prepare('SELECT * FROM onderhoud WHERE ip=? ORDER BY tot DESC').all(ip) });
+    }
+    if (methode === 'DELETE' && delen[3] === 'onderhoud' && delen[4]) {
+      db.prepare('DELETE FROM onderhoud WHERE id=? AND ip=?').run(Number(delen[4]), ip);
+      return json(res, 200, { ok: true });
+    }
+  }
+  if (pad === '/api/alerts' && methode === 'GET') {
+    return json(res, 200, { alerts: hosts.openAlerts(), alle: db.prepare('SELECT * FROM alerts ORDER BY id DESC LIMIT 100').all() });
+  }
+  if (delen[1] === 'alerts' && delen[2] && methode === 'POST') {
+    const id = Number(delen[2]);
+    const alert = db.prepare('SELECT * FROM alerts WHERE id=?').get(id);
+    if (!alert) return fout(res, 404, 'Storing niet gevonden');
+    if (delen[3] === 'gezien') db.prepare('UPDATE alerts SET gezien=1 WHERE id=?').run(id);
+    else if (delen[3] === 'opgelost') db.prepare('UPDATE alerts SET opgelost=? WHERE id=?').run(nu(), id);
+    else return fout(res, 404, 'Onbekende actie');
+    return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
+  }
+  if (pad === '/api/gebeurtenissen' && methode === 'GET') {
+    return json(res, 200, { gebeurtenissen: db.prepare('SELECT * FROM gebeurtenissen ORDER BY id DESC LIMIT 80').all() });
+  }
+
   if (pad === '/api/hosts/scan' && methode === 'POST') {
     const body = await leesBody(req).catch(() => null);
     if (!body) return fout(res, 400, 'Ongeldige JSON');
     try {
-      const uit = await scanHost(body.ip);
-      db.prepare(`INSERT INTO hosts(ip,naam,notitie,laatste_scan,poorten,diensten) VALUES(?,?,?,?,?,?)
-        ON CONFLICT(ip) DO UPDATE SET laatste_scan=excluded.laatste_scan,poorten=excluded.poorten,diensten=excluded.diensten,
-        naam=CASE WHEN excluded.naam<>'' THEN excluded.naam ELSE hosts.naam END`)
-        .run(uit.ip, tekst(body.naam, 60), tekst(body.notitie, 200), uit.op, JSON.stringify(uit.poorten), JSON.stringify(uit.diensten));
-      return json(res, 200, { scan: uit, host: db.prepare('SELECT * FROM hosts WHERE ip=?').get(uit.ip) });
+      const ip = tekst(body.ip, 60);
+      if (!geldigIp(ip)) return fout(res, 400, 'Geen geldig IP-adres');
+      // Nog niet in de lijst? Dan meteen toevoegen en scannen.
+      if (!hosts.een(ip)) {
+        db.prepare('INSERT INTO hosts(ip,naam,notitie,interval_s,actief,aangemaakt) VALUES(?,?,?,?,?,?)')
+          .run(ip, tekst(body.naam, 80), tekst(body.notitie, 300), 300, 1, nu());
+      }
+      const { uit } = await hosts.scan(ip);
+      return json(res, 200, { scan: uit, host: hosts.beeld(hosts.een(ip), true) });
     } catch (e) { return fout(res, 400, e.message); }
-  }
-  if (pad === '/api/hosts' && methode === 'GET') {
-    return json(res, 200, { hosts: db.prepare('SELECT * FROM hosts ORDER BY laatste_scan DESC').all() });
   }
 
   if (pad === '/api/instellingen' && methode === 'GET') {
@@ -648,6 +916,17 @@ async function agentRoutes(req, res, delen, url) {
   if (delen[2] === 'sites' && methode === 'GET') {
     return json(res, 200, { sites: sites.lijst().map((s) => siteBeeld(s)) });
   }
+  if (delen[2] === 'hosts' && !delen[3] && methode === 'GET') {
+    return json(res, 200, { hosts: hosts.lijst().map((h) => hosts.beeld(h)) });
+  }
+  if (delen[2] === 'hosts' && delen[3] && methode === 'GET') {
+    const h = hosts.een(decodeURIComponent(delen[3]));
+    if (!h) return fout(res, 404, 'Onbekend IP-adres');
+    return json(res, 200, { host: hosts.beeld(h, true), alerts: hosts.alerts(h.ip) });
+  }
+  if (delen[2] === 'alerts' && methode === 'GET') {
+    return json(res, 200, { alerts: hosts.openAlerts() });
+  }
   return fout(res, 404, 'Onbekende agent-route');
 }
 
@@ -677,6 +956,8 @@ if (require.main === module) {
   setTimeout(() => meetRonde().catch(() => {}), 1500);
   setTimeout(() => { if (instelling('agent_token')) verversProjecten(); }, 5000);
   setInterval(() => meetRonde().catch(() => {}), 30e3);
+  setTimeout(() => hostRonde().catch(() => {}), 3500);
+  setInterval(() => hostRonde().catch(() => {}), 60e3);
   setInterval(() => { if (!ververstBezig) verversProjecten(); }, 15 * 60e3);
   setInterval(() => db.prepare('DELETE FROM sessies WHERE verloopt < ?').run(nu()), 3600e3);
 }

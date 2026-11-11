@@ -31,7 +31,18 @@ CREATE TABLE IF NOT EXISTS projecten(naam TEXT PRIMARY KEY, url TEXT NOT NULL DE
   issues INTEGER NOT NULL DEFAULT 0, bijgewerkt TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '',
   fout TEXT NOT NULL DEFAULT '', opgehaald TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS hosts(ip TEXT PRIMARY KEY, naam TEXT NOT NULL DEFAULT '', notitie TEXT NOT NULL DEFAULT '',
-  laatste_scan TEXT NOT NULL DEFAULT '', poorten TEXT NOT NULL DEFAULT '', diensten TEXT NOT NULL DEFAULT '');
+  laatste_scan TEXT NOT NULL DEFAULT '', poorten TEXT NOT NULL DEFAULT '', diensten TEXT NOT NULL DEFAULT '',
+  hostnaam TEXT NOT NULL DEFAULT '', actief INTEGER NOT NULL DEFAULT 1, interval_s INTEGER NOT NULL DEFAULT 300,
+  ping_ms INTEGER, tls_dagen INTEGER, tls_verloopt TEXT NOT NULL DEFAULT '', aangemaakt TEXT NOT NULL DEFAULT '',
+  ok INTEGER NOT NULL DEFAULT 1, fout TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS host_controles(id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, op TEXT NOT NULL,
+  ok INTEGER NOT NULL, poorten INTEGER NOT NULL DEFAULT 0, ping_ms INTEGER, tls_dagen INTEGER, fout TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, soort TEXT NOT NULL,
+  bericht TEXT NOT NULL, op TEXT NOT NULL, gezien INTEGER NOT NULL DEFAULT 0, opgelost TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS onderhoud(id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, van TEXT NOT NULL,
+  tot TEXT NOT NULL, reden TEXT NOT NULL DEFAULT '', aangemaakt TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS gebeurtenissen(id INTEGER PRIMARY KEY AUTOINCREMENT, op TEXT NOT NULL, soort TEXT NOT NULL,
+  ip TEXT NOT NULL DEFAULT '', tekst TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS tickets(id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL DEFAULT '',
   titel TEXT NOT NULL, omschrijving TEXT NOT NULL DEFAULT '', prioriteit TEXT NOT NULL DEFAULT 'normaal',
   status TEXT NOT NULL DEFAULT 'open', aangemaakt TEXT NOT NULL, bijgewerkt TEXT NOT NULL,
@@ -76,12 +87,49 @@ if (!bestaand) {
   }
 }
 
+const hostZet = db.prepare(`INSERT INTO hosts(ip,naam,notitie,laatste_scan,poorten,diensten,hostnaam,actief,interval_s,
+  ping_ms,tls_dagen,tls_verloopt,aangemaakt,ok,fout) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+const hcZet = db.prepare('INSERT INTO host_controles(ip,op,ok,poorten,ping_ms,tls_dagen,fout) VALUES(?,?,?,?,?,?,?)');
+const alertZet = db.prepare('INSERT INTO alerts(ip,soort,bericht,op,gezien,opgelost) VALUES(?,?,?,?,?,?)');
+const gebZet = db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)');
+
+const demoHosts = [
+  { ip: '192.168.1.50', naam: 'proxmox-thuis', hostnaam: 'thuis.werdensmedia.net', notitie: 'LXC 105 — VoorraadThuis',
+    poorten: [22, 80, 443, 3000], ping: 2, tls: 61, diensten: [
+      { poort: 22, naam: 'ssh', titel: '', server: '', code: null, url: '' },
+      { poort: 443, naam: 'https', url: 'https://192.168.1.50/', code: 200, titel: 'Thuis — VoorraadThuis', server: 'nginx' }] },
+  { ip: '192.168.1.10', naam: 'nas-werdens', hostnaam: 'nas.werdensmedia.net', notitie: 'NAS — back-ups en media',
+    poorten: [22, 445, 5000, 5001], ping: 1, tls: null, diensten: [
+      { poort: 22, naam: 'ssh', titel: '', server: '', code: null, url: '' },
+      { poort: 5000, naam: 'http', url: 'http://192.168.1.10:5000/', code: 302, titel: 'Synology DiskStation', server: 'nginx' }] },
+  { ip: '192.168.1.16', naam: 'hermes-agent', hostnaam: 'hermesagent', notitie: 'Hermes Agent — LXC',
+    poorten: [22, 8080, 8099], ping: 1, tls: null, diensten: [
+      { poort: 22, naam: 'ssh', titel: '', server: '', code: null, url: '' },
+      { poort: 8080, naam: 'http', url: 'http://192.168.1.16:8080/', code: 200, titel: 'Werdens Monitor', server: '' }] },
+  { ip: '192.168.1.1', naam: 'router', hostnaam: 'fritz.box', notitie: 'Router en firewall',
+    poorten: [53, 80, 443], ping: 4, tls: 12, diensten: [
+      { poort: 443, naam: 'https', url: 'https://192.168.1.1/', code: 200, titel: 'FRITZ!Box', server: 'FRITZ!Box' }] },
+];
+
 if (!db.prepare('SELECT COUNT(*) n FROM hosts').get().n) {
-  db.prepare('INSERT INTO hosts(ip,naam,notitie,laatste_scan,poorten,diensten) VALUES(?,?,?,?,?,?)')
-    .run('192.168.1.50', 'proxmox-thuis', 'LXC 105 — VoorraadThuis', nu(),
-      JSON.stringify([22, 80, 443, 3000]), JSON.stringify([{ poort: 443, url: 'https://192.168.1.50:443/', code: 200, titel: 'Thuis', server: 'nginx' }]));
-  db.prepare('INSERT INTO hosts(ip,naam,notitie,laatste_scan,poorten,diensten) VALUES(?,?,?,?,?,?)')
-    .run('192.168.1.10', 'nas-werdens', 'NAS — back-ups en media', nu(), JSON.stringify([22, 445, 5000, 5001]), '[]');
+  for (const h of demoHosts) {
+    hostZet.run(h.ip, h.naam, h.notitie, nu(), JSON.stringify(h.poorten), JSON.stringify(h.diensten), h.hostnaam,
+      1, 300, h.ping, h.tls, h.tls ? new Date(Date.now() + h.tls * 86400e3).toISOString() : '', nu(), 1, '');
+    for (let i = 23; i >= 0; i--) {
+      const op = new Date(Date.now() - i * 3600e3).toISOString();
+      hcZet.run(h.ip, op, 1, h.poorten.length, h.ping + (i % 3), h.tls, '');
+    }
+  }
+  // Eén host die niet bereikbaar is, zodat de storingenlijst niet leeg is.
+  hostZet.run('192.168.1.77', 'werkplek-tom', 'Werkplek beneden', nu(), '[]', '[]', '', 1, 300, null, null, '', nu(), 0, 'Geen open poorten');
+  for (let i = 4; i >= 0; i--) {
+    const op = new Date(Date.now() - i * 3600e3).toISOString();
+    hcZet.run('192.168.1.77', op, 0, 0, null, null, 'Geen open poorten');
+  }
+  alertZet.run('192.168.1.77', 'host neer', 'Host is niet meer bereikbaar (geen open poorten)', nu(), 0, '');
+  alertZet.run('192.168.1.1', 'certificaat', 'TLS-certificaat verloopt over 12 dagen', nu(), 0, '');
+  gebZet.run(nu(), 'alert', '192.168.1.77', 'Host 192.168.1.77 reageert niet meer');
+  gebZet.run(nu(), 'host toegevoegd', '192.168.1.16', 'Host 192.168.1.16 toegevoegd');
 }
 
 if (!db.prepare('SELECT COUNT(*) n FROM tickets').get().n) {
