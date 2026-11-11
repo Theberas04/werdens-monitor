@@ -523,3 +523,20 @@ test('problemen: ernst, bevestigen, onderhoudsvenster en SLA', async () => {
     db.prepare("DELETE FROM alerts WHERE ip='192.0.2.55'").run();
   }
 });
+
+test('grafieken: tijdreeksen en annotaties in één antwoord', async () => {
+  const d = await alsJson('/api/grafiek?bereik=24u');
+  assert.equal(d.status, 200);
+  assert.equal(d.data.bereik, '24u');
+  for (const k of ['hosts', 'servers', 'sites', 'apparaten', 'annotaties']) {
+    assert.ok(Array.isArray(d.data[k]), k + ' is een lijst');
+  }
+  assert.ok(Date.parse(d.data.van) < Date.parse(d.data.tot), 'venster heeft een begin en eind');
+  const onzin = await alsJson('/api/grafiek?bereik=onzin');
+  assert.equal(onzin.data.bereik, '24u', 'onbekend bereik valt terug op 24 uur');
+  const eerste = d.data.hosts[0] || d.data.sites[0];
+  if (eerste) {
+    assert.ok(eerste.punten.length > 0, 'een reeks heeft punten');
+    assert.ok(eerste.punten.every((p) => typeof p.op === 'string'), 'elk punt heeft een tijd');
+  }
+});

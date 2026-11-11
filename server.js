@@ -19,6 +19,7 @@ const slack = require('./lib/slack');
 const hardware = require('./lib/hardware');
 const netwerk = require('./lib/netwerk');
 const libApparaten = require('./lib/apparaten');
+const grafiek = require('./lib/grafiek');
 
 // Laatste netwerkscan in het geheugen: het dashboard hoeft hem niet te bewaren,
 // hij is toch maar een momentopname. `netwerkGevonden` onthoudt de namen zodat
@@ -1260,6 +1261,13 @@ async function verwerk(req, res) {
     else return fout(res, 404, 'Onbekende actie');
     return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
   }
+  // ── grafieken (Grafana-achtig: tijdreeksen + annotaties) ───────────────────
+  if (pad === '/api/grafiek' && methode === 'GET') {
+    const gevraagd = new URL(req.url, 'http://localhost').searchParams.get('bereik') || '24u';
+    const bereik = grafiek.UREN[gevraagd] ? gevraagd : '24u';
+    return json(res, 200, { bereik, ...grafiek.alles(db, grafiek.UREN[bereik]) });
+  }
+
   // ── problemen (Zabbix-achtig overzicht) ────────────────────────────────────
   if (pad === '/api/problemen' && methode === 'GET') {
     const open = hosts.openAlerts().map((a) => {
