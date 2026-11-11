@@ -31,13 +31,29 @@ zeg "Bijwerken in $MAP (nu versie $OUD)"
 cd "$MAP"
 mkdir -p data
 
-if [ -d "$MAP/.git" ] && command -v git >/dev/null 2>&1; then
-  zeg "Nieuwste versie ophalen via git"
-  git fetch --quiet origin "$TAK" || stop "git fetch mislukt (repo niet bereikbaar?)"
-  git reset --hard --quiet "origin/$TAK" || stop "git reset mislukt"
-  NIEUW_SHA="$(git rev-parse HEAD)"
+# De installatiemap is van 'werdens', niet van root. Git noemt dat "dubious
+# ownership" en weigert dan te werken. Zet de map daarom één keer op de
+# vrijstellingslijst én geef hem per commando mee, zodat het ook zonder
+# schrijfbare git-config werkt.
+if command -v git >/dev/null 2>&1; then
+  git config --global --get-all safe.directory 2>/dev/null | grep -qx "$MAP" \
+    || git config --global --add safe.directory "$MAP" 2>/dev/null || true
+fi
+
+git_bijwerken() {
+  git -c safe.directory="$MAP" fetch --quiet origin "$TAK" 2>/dev/null || return 1
+  git -c safe.directory="$MAP" reset --hard --quiet "origin/$TAK" 2>/dev/null || return 1
+  NIEUW_SHA="$(git -c safe.directory="$MAP" rev-parse HEAD)"
+}
+
+if [ -d "$MAP/.git" ] && command -v git >/dev/null 2>&1 && git_bijwerken; then
+  zeg "Bijgewerkt via git"
 else
-  zeg "Geen git-installatie; tarball van GitHub gebruiken"
+  if [ -d "$MAP/.git" ] && command -v git >/dev/null 2>&1; then
+    zeg "git kon de repo niet lezen (eigenaar of netwerk); ik gebruik de tarball"
+  else
+    zeg "Geen git-installatie; tarball van GitHub gebruiken"
+  fi
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
   curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$TAK" -o "$TMP/bron.tar.gz" \

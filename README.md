@@ -123,6 +123,16 @@ systemd-unit van een oude installatie nog ingesteld op alleen `data/` (van vóó
 1.3). Draai het bijwerkscript hieronder één keer; dat zet `ReadWritePaths` op de
 hele installatiemap en herstart de dienst. Daarna werkt de knop in het dashboard.
 
+Krijg je **`fatal: detected dubious ownership in repository`**, dan is dat geen
+fout van jou: de installatiemap is van de dienstgebruiker `werdens` en git draait
+als root. Het bijwerkscript zet de map daarom zelf op de vrijstellingslijst
+(`safe.directory`) en gebruikt de tarball als git alsnog weigert. Handmatig kan
+het ook:
+
+```bash
+git config --global --add safe.directory /opt/werdens-monitor
+```
+
 Vanuit de terminal bijwerken — bijvoorbeeld als de draaiende versie nog geen
 update-knop heeft. Dit vervangt alleen de programmabestanden en herstart de
 dienst; de database blijft staan:

@@ -111,6 +111,12 @@ fi
 # vervangen als hij zichzelf bijwerkt via het dashboard. Root mag daar altijd
 # bij, dus git als root blijft werken.
 chown -R werdens:werdens "$MAP"
+# De map is nu van 'werdens'. Git als root noemt dat "dubious ownership" en
+# weigert; zet de map daarom vrij, dan werkt een update-script als root meteen.
+if command -v git >/dev/null 2>&1; then
+  git config --global --get-all safe.directory 2>/dev/null | grep -qx "$MAP" \
+    || git config --global --add safe.directory "$MAP" 2>/dev/null || true
+fi
 
 # Omgevingsbestand met de geheimen (alleen voor root en de dienst leesbaar)
 if [ ! -f /etc/$DIENST.env ]; then
