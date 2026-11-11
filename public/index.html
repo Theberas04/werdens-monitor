@@ -1877,7 +1877,7 @@ async function laadServers() {
     const hoog = serversCache.filter((s) => (s.cpu_pct || 0) >= 90 || (s.ram_pct || 0) >= 90 || (s.disk_pct || 0) >= 90).length;
     zetTeller('tab-servers', serversCache.length, hoog > 0 || serversCache.some((s) => s.status === 'fout'));
     beeld.innerHTML =
-      '<div class="kaarten-kop"><div><h2>Servers</h2><p class="hint">CPU, geheugen, schijven, GPU en temperatuur per server. De eigen monitor leest rechtstreeks; andere servers sturen hun cijfers via het agent-script.</p></div>'
+      '<div class="kaarten-kop"><div><h2>Servers</h2><p class="hint">CPU, geheugen, schijven, GPU en temperatuur per server. De eigen monitor leest rechtstreeks; andere servers sturen hun cijfers via het agent-script. Een <b>Proxmox-host</b> zet je onder <b>Apparaten</b>: die leest de monitor via de API, zonder agent.</p></div>'
       + '<button class="knop primair" id="server-toevoegen">' + ico.plus + ' Server toevoegen</button></div>'
       + '<div class="kpis" style="margin-bottom:16px">'
       + '<div class="kpi"><div class="kpi-label">Servers</div><div class="kpi-waarde">' + serversCache.length + '</div><div class="kpi-sub">' + ok + ' online</div></div>'
@@ -1971,7 +1971,7 @@ async function laadServerDetail(id) {
 
 // ── apparaten (homelab: UniFi, TrueNAS, generiek HTTP) ───────────────────────
 const SOORT_LABEL = { unifi: 'UniFi-controller', truenas: 'TrueNAS', proxmox: 'Proxmox VE', generiek: 'HTTP/JSON' };
-const SOORT_HINT = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', proxmox: 'URL van de Proxmox-host met poort 8006, bijvoorbeeld https://192.168.1.10:8006. Gebruiker: root@pam!monitor, sleutel: het token-secret.', generiek: 'Elke URL die JSON teruggeeft' };
+const SOORT_HINT = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', proxmox: 'URL met poort 8006, bijvoorbeeld https://192.168.1.12:8006. Gebruiker: root@pam!monitor met het token-secret (Datacenter → Permissions → API Tokens, Privilege Separation uit), óf root@pam met het wachtwoord (dan moet 2FA uit staan).', generiek: 'Elke URL die JSON teruggeeft' };
 
 function apparaatStatus(st) {
   if (st === 'fout') return { klasse: 'neer', tekst: 'fout' };
@@ -2160,7 +2160,7 @@ function toonApparaatForm(apparaat = null) {
     + '<label class="veld"><span>Naam</span><input name="naam" value="' + esc(a.naam || '') + '" placeholder="bijv. unifi-thuis" required></label>'
     + '<label class="veld"><span>Soort</span><select name="soort" id="app-soort">' + opties + '</select></label>'
     + '<label class="veld"><span>URL</span><input name="url" value="' + esc(a.url || '') + '" placeholder="https://192.168.1.1" required></label>'
-    + '<label class="veld"><span>Gebruiker of token (bij generiek)</span><input name="gebruiker" value="' + esc(a.gebruiker || '') + '" placeholder="beheerder of bearer-token"></label>'
+    + '<label class="veld"><span>Gebruiker of token</span><input name="gebruiker" value="' + esc(a.gebruiker || '') + '" placeholder="bijv. root@pam!monitor of een beheerder"></label>'
     + '<label class="veld"><span>Wachtwoord of API-key</span><input name="geheim" type="password" placeholder="' + (apparaat && a.heeft_geheim ? 'laat leeg om het bestaande te houden' : 'wachtwoord of API-key') + '"></label>'
     + '<p class="hint" id="app-hint">' + esc(veldHint) + '</p>'
     + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button type="button" class="knop" id="app-annuleer">Annuleren</button><button type="submit" class="knop primair">' + (apparaat ? 'Opslaan' : 'Toevoegen') + '</button></div></form>';

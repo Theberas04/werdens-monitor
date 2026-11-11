@@ -192,6 +192,15 @@ Bij *Proxmox VE* gebruik je de API van de host zelf — geen agent nodig:
    `https://<proxmox-host>:8006`, gebruiker `root@pam!monitor` en als
    wachtwoord/API-key het secret.
 
+**Zonder token** kan het ook: vul bij gebruiker `root@pam` (zonder uitroepteken)
+en bij wachtwoord het gewone wachtwoord in. De monitor haalt dan eerst een ticket
+op. Dat werkt alleen als 2FA uit staat voor dat account; met 2FA is een API-token
+de enige weg.
+
+Let op: een Proxmox-host hoort onder **Apparaten**, niet onder *Servers*. Bij
+*Servers* hoort een agent-script op de machine; een Proxmox-host leest de monitor
+rechtstreeks via de API.
+
 De monitor leest dan de nodes met hun CPU-, RAM- en schijfbelasting en load, de
 VM's en containers met hun status, en de opslag per node. Een offline node of
 een opslag boven 90% maakt het apparaat `fout` en stuurt — als Slack aanstaat —

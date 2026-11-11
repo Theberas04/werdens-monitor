@@ -398,8 +398,22 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     if (u === '/api/gegevens') return json({ naam: 'kastje', versie: '1.2.3', temperatuur: 41.5, online: true });
     // Proxmox VE: antwoorden zitten altijd in een 'data'-wikkel; het token gaat
     // als PVEAPIToken=user@realm!id=secret in de Authorization-kop.
+    // Wachtwoord-login: Proxmox geeft eerst een ticket, daarna lees je met een cookie.
+    if (u === '/api2/json/access/ticket' && req.method === 'POST') {
+      let lichaam = '';
+      req.on('data', (c) => { lichaam += c; });
+      req.on('end', () => {
+        const p = new URLSearchParams(lichaam);
+        if (p.get('username') === 'root@pam' && p.get('password') === 'goed') {
+          return json({ data: { ticket: 'PVE:goed', CSRFPreventionToken: 'csrf', username: 'root@pam' } });
+        }
+        json({ data: null }, 401);
+      });
+      return;
+    }
     if (u.startsWith('/api2/json/')) {
-      if (req.headers.authorization !== 'PVEAPIToken=root@pam!monitor=goed') return json({ data: null, errors: 'invalid token' }, 401);
+      const metTicket = String(req.headers.cookie || '').includes('PVEAuthCookie=PVE:goed');
+      if (req.headers.authorization !== 'PVEAPIToken=root@pam!monitor=goed' && !metTicket) return json({ data: null, errors: 'invalid token' }, 401);
       if (u === '/api2/json/version') return json({ data: { version: '8.2.4', release: '8.2' } });
       if (u === '/api2/json/nodes') return json({ data: [
         { node: 'pve1', status: 'online', uptime: 604800, cpu: 0.12, mem: 8589934592, maxmem: 34359738368, disk: 21474836480, maxdisk: 107374182400, loadavg: 0.42 },
@@ -447,6 +461,17 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     assert.equal(pve.data.apparaat.data.versie, '8.2.4');
     assert.equal(pve.data.apparaat.data.volle_opslag, 1, 'opslag boven 90% telt mee');
     assert.equal(pve.data.apparaat.data.opslag[0].gebruikt_pct, 95);
+
+    // Zonder uitroepteken in de gebruiker proberen we een gewone wachtwoord-login,
+    // zodat je geen token hoeft aan te maken.
+    const pveWachtwoord = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox wachtwoord', soort: 'proxmox', url: adres, gebruiker: 'root@pam', geheim: 'goed' } });
+    assert.equal(pveWachtwoord.status, 201, 'Proxmox met wachtwoord toevoegen lukt');
+    assert.equal(pveWachtwoord.data.apparaat.status, 'fout', 'offline node blijft een fout');
+    assert.equal(pveWachtwoord.data.apparaat.data.nodes.length, 2, 'dezelfde gegevens als met een token');
+
+    const pveWachtwoordFout = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox wachtwoord fout', soort: 'proxmox', url: adres, gebruiker: 'root@pam', geheim: 'fout' } });
+    assert.equal(pveWachtwoordFout.data.apparaat.status, 'fout');
+    assert.match(pveWachtwoordFout.data.apparaat.fout, /inloggen|wachtwoord/i);
 
     const pveFout = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox fout', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'fout' } });
     assert.equal(pveFout.data.apparaat.status, 'fout');
