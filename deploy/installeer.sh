@@ -21,22 +21,49 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Node 22.5+ heeft node:sqlite nodig; ouder werkt niet. Ontbreekt Node, dan
-# installeren we versie 22 via NodeSource — de gebruiker hoeft niets vooraf te
-# doen. Is er geen apt (geen Debian/Ubuntu), dan stoppen we met een duidelijke
-# melding in plaats van halverwege te falen.
+# installeren we versie 22 via NodeSource. Een repo die niet bereikbaar is —
+# bijvoorbeeld de Proxmox-enterprise-repo zonder abonnement, die 401 geeft —
+# mag dat niet tegenhouden: apt-fouten worden genegeerd en daarna gecontroleerd.
 node_ok() {
   command -v node >/dev/null 2>&1 || return 1
   [ "$(node -p 'Number(process.versions.node.split(".")[0])*100+Number(process.versions.node.split(".")[1])' 2>/dev/null)" -ge 2205 ]
 }
-if ! node_ok; then
+
+apt_bij() { apt-get update -qq 2>/dev/null || true; }
+
+installeer_node() {
   if command -v apt-get >/dev/null 2>&1; then
-    echo "Node 22.5+ ontbreekt of is te oud; Node 22 wordt geïnstalleerd via NodeSource." >&2
-    apt-get update -qq
-    apt-get install -y -qq curl ca-certificates gnupg
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    apt-get install -y -qq nodejs
+    apt_bij
+    apt-get install -y -qq curl ca-certificates gnupg 2>/dev/null || true
+    curl -fsSL https://deb.nodesource.com/setup_22.x 2>/dev/null | bash - >/dev/null 2>&1 || true
+    apt_bij
+    apt-get install -y -qq nodejs 2>/dev/null || true
+    node_ok && return 0
   fi
-  if ! node_ok; then
+  # Terugval zonder apt: de officiële tarball van nodejs.org.
+  local arch versie url
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64) arch=x64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) return 1 ;;
+  esac
+  versie="$(curl -fsSL https://nodejs.org/dist/index.json 2>/dev/null | grep -oE '"version":"v22\.[0-9]+\.[0-9]+"' | head -1 | cut -d'"' -f4)"
+  [ -n "$versie" ] || return 1
+  url="https://nodejs.org/dist/$versie/node-$versie-linux-$arch.tar.gz"
+  curl -fsSL "$url" -o /tmp/node-22.tar.gz 2>/dev/null || return 1
+  mkdir -p /usr/local/lib/nodejs
+  tar -xzf /tmp/node-22.tar.gz -C /usr/local/lib/nodejs --strip-components=1 2>/dev/null || return 1
+  ln -sf /usr/local/lib/nodejs/bin/node /usr/local/bin/node
+  ln -sf /usr/local/lib/nodejs/bin/npm /usr/local/bin/npm 2>/dev/null || true
+  ln -sf /usr/local/lib/nodejs/bin/npx /usr/local/bin/npx 2>/dev/null || true
+  hash -r 2>/dev/null || true
+  node_ok
+}
+
+if ! node_ok; then
+  echo "Node 22.5+ ontbreekt of is te oud; Node 22 wordt geïnstalleerd." >&2
+  if ! installeer_node; then
     echo "Node 22.5 of nieuwer installeren is niet gelukt. Installeer Node 22 (bijv. via https://deb.nodesource.com/setup_22.x) en probeer opnieuw." >&2
     exit 1
   fi
@@ -44,7 +71,9 @@ fi
 echo "Node $(node -v) gevonden."
 
 if ! command -v git >/dev/null 2>&1; then
-  apt-get update -qq && apt-get install -y -qq git ca-certificates
+  apt_bij
+  apt-get install -y -qq git ca-certificates 2>/dev/null || true
+  command -v git >/dev/null 2>&1 || { echo "git ontbreekt en kon niet geïnstalleerd worden." >&2; exit 1; }
 fi
 
 if [ -d "$MAP/.git" ]; then

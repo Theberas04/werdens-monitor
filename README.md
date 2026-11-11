@@ -117,7 +117,10 @@ Een rondleiding door de app: **[demo-video (42 s, 1440×900)](docs/video/werdens
 ## Installeren
 
 Eén regel op de Proxmox-host (Debian/Ubuntu). Ontbreekt Node 22.5 of is het
-te oud, dan installeert het script Node 22 zelf via NodeSource:
+te oud, dan installeert het script Node 22 zelf via NodeSource. Een repo die
+niet bereikbaar is (bijv. de Proxmox-enterprise-repo zonder abonnement) houdt
+de installatie niet tegen: apt-fouten worden overgeslagen en er is een terugval
+op de officiële Node-tarball:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/main/deploy/installeer.sh | bash
