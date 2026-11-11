@@ -15,7 +15,7 @@
 #   STORAGE         rootfs-opslag; leeg = automatisch de eerste actieve images-opslag
 #   BRIDGE          vmbr0
 #   IP              dhcp (standaard) of bijv. 192.168.1.130/24,gw=192.168.1.1
-#   ADMIN_PASSWORD  wachtwoord van het dashboard (verplicht)
+#   ADMIN_PASSWORD  wachtwoord van het dashboard; leeg = wordt gegenereerd
 #   GITHUB_TOKEN    token voor de Projecten-tab (optioneel)
 #   DROOG=1         alleen tonen wat er zou gebeuren, niets aanmaken
 set -euo pipefail
@@ -80,9 +80,12 @@ if ! pveam list "$TMPL_OPSLAG" 2>/dev/null | grep -q "$TEMPLATE"; then
   doe pveam download "$TMPL_OPSLAG" "$TEMPLATE"
 fi
 
+# Zonder wachtwoord maakt het script er één en print dat aan het eind; zo werkt
+# de one-liner ook zonder vooraf iets te zetten.
+ADMIN_WW_GEMAAKT=0
 if [ -z "${ADMIN_PASSWORD:-}" ]; then
-  echo "Zet ADMIN_PASSWORD; anders maakt de app er zelf één en moet je die uit het log vissen." >&2
-  exit 1
+  ADMIN_PASSWORD="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 14)"
+  ADMIN_WW_GEMAAKT=1
 fi
 
 ROOT_WW="$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
@@ -123,6 +126,7 @@ if [ "${DROOG:-0}" != "1" ]; then
   CT_IP="$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}')"
   echo
   echo "Klaar. Werdens Monitor draait in LXC $CTID op http://${CT_IP:-<ip>}:8080"
+  [ "$ADMIN_WW_GEMAAKT" = "1" ] && echo "Dashboard-wachtwoord (genereerd): $ADMIN_PASSWORD"
   echo "Root-wachtwoord van de container: $ROOT_WW"
   echo "Bijwerken: dit script opnieuw draaien met een bestaand CTID doet niets;"
   echo "gebruik dan: pct exec $CTID -- bash -c 'curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/installeer.sh | bash'"

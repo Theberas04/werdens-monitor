@@ -127,8 +127,10 @@ CTID=120 ADMIN_PASSWORD='kies-er-een' GITHUB_TOKEN='ghp_...' \
   bash <(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/proxmox/maak-lxc.sh)
 ```
 
-Zonder `CTID` pakt het script het eerste vrije nummer vanaf 120. Standaard
-dhcp; een vast adres geef je mee met `IP=192.168.1.130/24,gw=192.168.1.1`.
+Zonder `CTID` pakt het script het eerste vrije nummer vanaf 120. Zonder
+`ADMIN_PASSWORD` maakt het script een wachtwoord en print dat aan het eind.
+Standaard dhcp; een vast adres geef je mee met
+`IP=192.168.1.130/24,gw=192.168.1.1`.
 `STORAGE`, `CORES`, `MEMORY`, `DISK` en `BRIDGE` zijn ook aan te passen.
 `DROOG=1` toont alleen wat er zou gebeuren. Het root-wachtwoord van de
 container wordt aan het eind geprint.
