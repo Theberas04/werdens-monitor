@@ -136,6 +136,36 @@ for (const [soort, ernst] of Object.entries({
 }
 db.prepare("UPDATE alerts SET gemeld_op=op WHERE gemeld_op='' OR gemeld_op IS NULL").run();
 
+// ── TopDesk-achtige ticketvelden ──────────────────────────────────────────────
+// Behandelaar, categorie, impact/urgentie, klant, SLA en de oplossing. De klok
+// pauzeert zolang een ticket op de klant of leverancier wacht.
+for (const [kolom, definitie] of [
+  ['behandelaar', "TEXT NOT NULL DEFAULT ''"],
+  ['categorie', "TEXT NOT NULL DEFAULT ''"],
+  ['subcategorie', "TEXT NOT NULL DEFAULT ''"],
+  ['impact', "TEXT NOT NULL DEFAULT ''"],
+  ['urgentie', "TEXT NOT NULL DEFAULT ''"],
+  ['kanaal', "TEXT NOT NULL DEFAULT 'dashboard'"],
+  ['klant_naam', "TEXT NOT NULL DEFAULT ''"],
+  ['klant_email', "TEXT NOT NULL DEFAULT ''"],
+  ['oplossing', "TEXT NOT NULL DEFAULT ''"],
+  ['sluitreden', "TEXT NOT NULL DEFAULT ''"],
+  ['opgelost_op', "TEXT NOT NULL DEFAULT ''"],
+  ['eerste_reactie_op', "TEXT NOT NULL DEFAULT ''"],
+  ['pauze_ms', 'INTEGER NOT NULL DEFAULT 0'],
+  ['pauze_sinds', "TEXT NOT NULL DEFAULT ''"],
+  ['soort', "TEXT NOT NULL DEFAULT 'incident'"],
+  ['change_van', "TEXT NOT NULL DEFAULT ''"],
+  ['change_tot', "TEXT NOT NULL DEFAULT ''"],
+  ['onderhoud_id', 'INTEGER'],
+  ['alert_id', 'INTEGER'],
+]) kolomErbij('tickets', kolom, definitie);
+
+db.exec(`CREATE TABLE IF NOT EXISTS kennisbank(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, titel TEXT NOT NULL, probleem TEXT NOT NULL DEFAULT '',
+  oplossing TEXT NOT NULL, categorie TEXT NOT NULL DEFAULT '', trefwoorden TEXT NOT NULL DEFAULT '',
+  gebruikt INTEGER NOT NULL DEFAULT 0, aangemaakt TEXT NOT NULL);`);
+
 const nu = () => new Date().toISOString();
 function instelling(sleutel, standaard = '') {
   const r = db.prepare('SELECT waarde FROM instellingen WHERE sleutel=?').get(sleutel);
@@ -144,6 +174,32 @@ function instelling(sleutel, standaard = '') {
 function zetInstelling(sleutel, waarde) {
   db.prepare('INSERT INTO instellingen(sleutel,waarde) VALUES(?,?) ON CONFLICT(sleutel) DO UPDATE SET waarde=excluded.waarde')
     .run(sleutel, String(waarde));
+}
+
+// Het adres waarmee je het dashboard van buiten opent. In een Slack-melding staat
+// een link hierheen; het adres van de container (127.0.0.1 of 172.x) is op een
+// telefoon niet bruikbaar. Volgorde: wat je zelf instelt, het adres waarmee je
+// voor het laatst inlogde, BASE_URL, en pas dan het LAN-adres.
+function publiekAdres() {
+  const schoon = (v) => String(v || '').trim().replace(/\/+$/, '');
+  const eigen = schoon(instelling('publieke_url'));
+  if (eigen) return eigen;
+  const laatste = schoon(instelling('laatste_adres'));
+  if (laatste) return laatste;
+  const omgeving = schoon(process.env.BASE_URL);
+  if (omgeving) return omgeving;
+  const lan = Object.values(os.networkInterfaces()).flat().find((n) => n && n.family === 'IPv4' && !n.internal);
+  return 'http://' + (lan ? lan.address : 'localhost') + ':' + POORT;
+}
+
+// Onthoud het adres waarmee je binnenkomt, zodat de Slack-link naar de plek
+// wijst waar je de monitor echt opent (bijvoorbeeld achter een reverse proxy).
+function onthoudAdres(req) {
+  const host = String(req.headers.host || '').trim();
+  if (!host || /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|$)/i.test(host)) return;
+  const proto = String(req.headers['x-forwarded-proto'] || (req.socket && req.socket.encrypted ? 'https' : 'http')).split(',')[0].trim();
+  const adres = (proto === 'https' ? 'https' : 'http') + '://' + host;
+  if (instelling('laatste_adres') !== adres) zetInstelling('laatste_adres', adres);
 }
 
 // Het GitHub-token uit de database heeft voorrang op de omgeving: wat de
@@ -425,7 +481,7 @@ function stuurSlack(alert) {
     ON CONFLICT(ip,soort) DO UPDATE SET op=excluded.op, ok=excluded.ok, fout=excluded.fout`)
     .run(alert.ip, soort, nu(), ok ? 1 : 0, String(fout || '').slice(0, 300));
   bewaar(true, '');
-  slack.meldAlert(instelling('slack_webhook'), { ...alert, soort, naam }, { basis: BASIS })
+  slack.meldAlert(instelling('slack_webhook'), { ...alert, soort, naam }, { basis: publiekAdres() })
     .then((r) => {
       bewaar(r.ok, r.fout);
       if (r.ok) zetInstelling('slack_laatst', nu());
@@ -782,6 +838,94 @@ function ticketVanBody(body) {
   return { titel, ip, omschrijving: tekst(body.omschrijving, 4000), prioriteit, status };
 }
 
+// ── SLA en ticketlogica (naar het voorbeeld van TopDesk) ─────────────────────
+// Impact × urgentie bepaalt de prioriteit; de SLA hangt aan die prioriteit.
+// Zolang een ticket op de klant of leverancier wacht, loopt de klok niet door.
+const SLA = {
+  kritiek: { reactie: 60, oplos: 240 },
+  hoog: { reactie: 120, oplos: 480 },
+  normaal: { reactie: 240, oplos: 1440 },
+  laag: { reactie: 480, oplos: 2880 },
+};
+const SLA_LABEL = { kritiek: '1 uur / 4 uur', hoog: '2 uur / 8 uur', normaal: '4 uur / 24 uur', laag: '8 uur / 48 uur' };
+const STATUS_PAUZE = ['wacht op klant', 'wacht op leverancier'];
+const CATEGORIEEN = ['netwerk', 'server', 'website', 'hardware', 'software', 'e-mail', 'telefoon', 'overig'];
+const BEHANDELAARS = ['Tom', 'Werdens Media'];
+
+// TopDesk's prioriteitsmatrix: impact (hoeveel mensen raakt het) × urgentie
+// (hoe snel moet het). Hoger van beide telt zwaarder.
+function prioriteitUit(impact, urgentie) {
+  const i = ['laag', 'normaal', 'hoog'].indexOf(String(impact || 'normaal'));
+  const u = ['laag', 'normaal', 'hoog'].indexOf(String(urgentie || 'normaal'));
+  const score = Math.max(i, u) + Math.min(i, u);
+  if (score >= 4) return 'kritiek';
+  if (score >= 2) return 'hoog';
+  if (score >= 1) return 'normaal';
+  return 'laag';
+}
+
+function minutenTussen(a, b) {
+  if (!a || !b) return null;
+  const verschil = Date.parse(b) - Date.parse(a);
+  return Number.isFinite(verschil) ? Math.round(verschil / 60000) : null;
+}
+
+// De klok: verstreken minuten sinds aanmaak, min de pauzes. Loopt nu een pauze,
+// dan telt die tot nu mee als stilstand.
+function verstrekenMinuten(ticket, nuIso = nu()) {
+  const pauze = Number(ticket.pauze_ms) || 0;
+  const lopend = ticket.pauze_sinds ? Math.max(0, Date.parse(nuIso) - Date.parse(ticket.pauze_sinds)) : 0;
+  return Math.max(0, (minutenTussen(ticket.aangemaakt, nuIso) || 0) - Math.round((pauze + lopend) / 60000));
+}
+
+function slaVan(ticket) {
+  const afspraak = SLA[ticket.prioriteit] || SLA.normaal;
+  const verstreken = verstrekenMinuten(ticket);
+  const klaar = ticket.status === 'opgelost' || ticket.status === 'gesloten';
+  const geeindigd = klaar && ticket.opgelost_op ? verstrekenMinuten(ticket, ticket.opgelost_op) : verstreken;
+  const beoordeel = (minuten, grens) => {
+    if (klaar) return minuten <= grens ? 'gehaald' : 'overschreden';
+    if (minuten > grens) return 'overschreden';
+    if (minuten > grens * 0.75) return 'bijna';
+    return 'op tijd';
+  };
+  return {
+    afspraak, verstreken: geeindigd,
+    eerste_reactie: ticket.eerste_reactie_op ? minutenTussen(ticket.aangemaakt, ticket.eerste_reactie_op) : null,
+    reactie: beoordeel(ticket.eerste_reactie_op ? minutenTussen(ticket.aangemaakt, ticket.eerste_reactie_op) : geeindigd, afspraak.reactie),
+    oplossing: beoordeel(geeindigd, afspraak.oplos),
+    resterend: klaar ? null : Math.max(0, afspraak.oplos - geeindigd),
+  };
+}
+
+function pauzeer(ticket, nieuweStatus) {
+  const was = STATUS_PAUZE.includes(ticket.status);
+  const wordt = STATUS_PAUZE.includes(nieuweStatus);
+  const op = nu();
+  if (!was && wordt) {
+    db.prepare('UPDATE tickets SET pauze_sinds=? WHERE id=?').run(op, ticket.id);
+  } else if (was && !wordt) {
+    const opgeteld = (Number(ticket.pauze_ms) || 0) + Math.max(0, Date.parse(op) - Date.parse(ticket.pauze_sinds));
+    db.prepare('UPDATE tickets SET pauze_ms=?, pauze_sinds=? WHERE id=?').run(Math.round(opgeteld), '', ticket.id);
+  }
+  if (!was && !wordt) return;
+  if (nieuweStatus === 'opgelost' || nieuweStatus === 'gesloten') {
+    db.prepare("UPDATE tickets SET opgelost_op=COALESCE(NULLIF(opgelost_op,''), ?) WHERE id=?").run(op, ticket.id);
+  }
+}
+
+function ticketBeeld(t) {
+  if (!t) return null;
+  const s = slaVan(t);
+  return {
+    ...t,
+    impact: t.impact || '', urgentie: t.urgentie || '', behandelaar: t.behandelaar || '',
+    categorie: t.categorie || '', subcategorie: t.subcategorie || '',
+    sla: s, sla_label: SLA_LABEL[t.prioriteit] || SLA_LABEL.normaal,
+    wacht: STATUS_PAUZE.includes(t.status),
+  };
+}
+
 // ── achtergrondwerk ──────────────────────────────────────────────────────────
 let meetBezig = false;
 async function meetRonde() {
@@ -944,6 +1088,7 @@ async function verwerk(req, res) {
     return fout(res, 401, 'Niet ingelogd');
   }
 
+  onthoudAdres(req);
   if (pad === '/api/ik' && methode === 'GET') return json(res, 200, { naam: instelling('admin_naam', 'tom') });
   if (pad === '/api/logout' && methode === 'POST') { sessies.wis(koekjes(req)[COOKIE]); return json(res, 200, { ok: true }); }
   if (pad === '/api/overzicht' && methode === 'GET') return json(res, 200, overzicht());
@@ -1005,16 +1150,39 @@ async function verwerk(req, res) {
   }
 
   if (pad === '/api/tickets' && methode === 'GET') {
-    return json(res, 200, { tickets: tickets.lijst(), statussen: STATUSSEN, prioriteiten: PRIORITEITEN });
+    return json(res, 200, {
+      tickets: tickets.lijst().map(ticketBeeld), statussen: STATUSSEN, prioriteiten: PRIORITEITEN,
+      categorieen: CATEGORIEEN, behandelaars: BEHANDELAARS, sla: SLA, sla_label: SLA_LABEL,
+    });
   }
   if (pad === '/api/tickets' && methode === 'POST') {
     const body = await leesBody(req).catch(() => null);
     if (!body) return fout(res, 400, 'Ongeldige JSON');
     let t;
     try { t = ticketVanBody(body); } catch (e) { return fout(res, 400, e.message); }
-    const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt)
-      VALUES(?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, t.prioriteit, t.status, nu(), nu());
+    // Impact × urgentie bepaalt de prioriteit als die niet expliciet is gezet.
+    const impact = ['laag', 'normaal', 'hoog'].includes(body.impact) ? body.impact : 'normaal';
+    const urgentie = ['laag', 'normaal', 'hoog'].includes(body.urgentie) ? body.urgentie : 'normaal';
+    const prioriteit = body.prioriteit && PRIORITEITEN.includes(body.prioriteit)
+      ? body.prioriteit : prioriteitUit(impact, urgentie);
+    const categorie = CATEGORIEEN.includes(String(body.categorie || '').toLowerCase()) ? String(body.categorie).toLowerCase() : '';
+    const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
+      impact,urgentie,categorie,subcategorie,kanaal,klant_naam,klant_email,soort)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, t.status, nu(), nu(),
+      impact, urgentie, categorie, tekst(body.subcategorie, 60), tekst(body.kanaal, 40) || 'dashboard',
+      tekst(body.klant_naam, 80), tekst(body.klant_email, 120), body.soort === 'change' ? 'change' : 'incident');
     const ticket = tickets.een(r.lastInsertRowid);
+    // Change-ticket: meteen een onderhoudsvenster, zodat de meldingen stil zijn.
+    if (ticket.soort === 'change' && ticket.ip && body.change_tot) {
+      const van = tekst(body.change_van, 40) || nu();
+      const tot = tekst(body.change_tot, 40);
+      if (tot && Date.parse(tot) > Date.parse(van)) {
+        const o = db.prepare('INSERT INTO onderhoud(ip,van,tot,reden,aangemaakt) VALUES(?,?,?,?,?)')
+          .run(ticket.ip, van, tot, 'Change #' + ticket.id + ': ' + ticket.titel, nu());
+        db.prepare('UPDATE tickets SET change_van=?, change_tot=?, onderhoud_id=? WHERE id=?')
+          .run(van, tot, o.lastInsertRowid, ticket.id);
+      }
+    }
     if (t.omschrijving) tickets.voegBerichtToe(ticket.id, 'Tom', 'tom', t.omschrijving);
     return json(res, 201, { ticket });
   }
@@ -1022,7 +1190,10 @@ async function verwerk(req, res) {
     const ticket = tickets.een(delen[2]);
     if (!ticket) return fout(res, 404, 'Ticket niet gevonden');
     if (methode === 'GET' && !delen[3]) {
-      return json(res, 200, { ticket, berichten: tickets.berichten(ticket.id), context: tickets.context(ticket) });
+      const kennis = ticket.categorie
+        ? db.prepare("SELECT * FROM kennisbank WHERE categorie=? ORDER BY gebruikt DESC, id DESC LIMIT 5").all(ticket.categorie)
+        : db.prepare('SELECT * FROM kennisbank ORDER BY gebruikt DESC, id DESC LIMIT 5').all();
+      return json(res, 200, { ticket: ticketBeeld(ticket), berichten: tickets.berichten(ticket.id), context: tickets.context(ticket), kennis });
     }
     if (methode === 'PATCH' && !delen[3]) {
       const body = await leesBody(req).catch(() => null);
@@ -1039,7 +1210,25 @@ async function verwerk(req, res) {
       }
       if (body.titel !== undefined) { const t = tekst(body.titel, 120); if (!t) return fout(res, 400, 'Titel is verplicht'); velden.push('titel=?'); waarden.push(t); }
       if (body.ai_onderzoek !== undefined) { velden.push('ai_onderzoek=?'); waarden.push(tekst(body.ai_onderzoek, 8000)); }
+      for (const [veld, kolom] of [['behandelaar', 'behandelaar'], ['subcategorie', 'subcategorie'], ['oplossing', 'oplossing'], ['sluitreden', 'sluitreden']]) {
+        if (body[veld] !== undefined) { velden.push(kolom + '=?'); waarden.push(tekst(body[veld], veld === 'oplossing' ? 8000 : 120)); }
+      }
+      if (body.categorie !== undefined) {
+        const c = String(body.categorie || '').toLowerCase();
+        if (c && !CATEGORIEEN.includes(c)) return fout(res, 400, 'Onbekende categorie');
+        velden.push('categorie=?'); waarden.push(c);
+      }
+      if (body.impact !== undefined) {
+        if (!['laag', 'normaal', 'hoog'].includes(body.impact)) return fout(res, 400, 'Onbekende impact');
+        velden.push('impact=?'); waarden.push(body.impact);
+      }
+      if (body.urgentie !== undefined) {
+        if (!['laag', 'normaal', 'hoog'].includes(body.urgentie)) return fout(res, 400, 'Onbekende urgentie');
+        velden.push('urgentie=?'); waarden.push(body.urgentie);
+      }
       if (!velden.length) return fout(res, 400, 'Niets te wijzigen');
+      // De klok pauzeert bij 'wacht op klant' en 'wacht op leverancier'.
+      if (body.status !== undefined) pauzeer(ticket, body.status);
       velden.push('bijgewerkt=?'); waarden.push(nu()); waarden.push(ticket.id);
       db.prepare('UPDATE tickets SET ' + velden.join(',') + ' WHERE id=?').run(...waarden);
       return json(res, 200, { ticket: tickets.een(ticket.id) });
@@ -1432,6 +1621,9 @@ async function verwerk(req, res) {
       slack_webhook: instelling('slack_webhook'),
       slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
+      publieke_url: instelling('publieke_url'),
+      publieke_url_actief: publiekAdres(),
+      laatste_adres: instelling('laatste_adres'),
       slack_laatst: instelling('slack_laatst'),
       slack_laatst_fout: instelling('slack_laatst_fout'),
       versie: require('./package.json').version,
@@ -1479,11 +1671,21 @@ async function verwerk(req, res) {
         github.zetToken('');
       }
     }
+    if (body.publieke_url !== undefined) {
+      const invoer = tekst(body.publieke_url, 200).replace(/\/+$/, '');
+      if (invoer) {
+        let adres;
+        try { adres = new URL(invoer); } catch { return fout(res, 400, 'Geen geldig adres (begin met http:// of https://)'); }
+        if (!/^https?:$/.test(adres.protocol)) return fout(res, 400, 'Het adres moet met http:// of https:// beginnen');
+      }
+      zetInstelling('publieke_url', invoer);
+    }
     if (body.slack_aan !== undefined) zetInstelling('slack_aan', body.slack_aan ? '1' : '0');
     if (body.slack_herstel !== undefined) zetInstelling('slack_herstel', body.slack_herstel ? '1' : '0');
     return json(res, 200, {
       ok: true, github_token: github.token() ? 'ingesteld' : 'niet ingesteld',
       github_login: instelling('github_login'), agent_token: instelling('agent_token'),
+      publieke_url: instelling('publieke_url'), publieke_url_actief: publiekAdres(),
       slack_webhook: instelling('slack_webhook'), slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
     });
@@ -1520,7 +1722,7 @@ async function verwerk(req, res) {
     const uit = await slack.meldAlert(webhook, {
       soort: 'test', bericht: 'Testmelding vanuit Werdens Monitor — de koppeling werkt.',
       ip: '127.0.0.1', op: nu(),
-    }, { basis: BASIS });
+    }, { basis: publiekAdres() });
     if (!uit.ok) {
       zetInstelling('slack_laatst_fout', nu() + ' — ' + uit.fout);
       return fout(res, 502, uit.fout);

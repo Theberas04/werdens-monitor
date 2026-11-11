@@ -281,13 +281,28 @@ test('Slack-meldingen: webhook instellen, testen en ongeldige URL weigeren', asy
     assert.equal(gelezen.data.slack_aan, true);
     assert.equal(gelezen.data.slack_webhook, url);
 
+    // De link in het bericht moet naar het dashboard van de gebruiker wijzen,
+    // niet naar localhost of het container-IP.
+    const onzin = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { publieke_url: 'dashboard.werdensmedia.net' } });
+    assert.equal(onzin.status, 400, 'adres zonder http(s) moet geweigerd worden');
+    const adres = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { publieke_url: 'https://dashboard.werdensmedia.net/' } });
+    assert.equal(adres.status, 200);
+    assert.equal(adres.data.publieke_url_actief, 'https://dashboard.werdensmedia.net', 'schuine streep aan het eind valt weg');
+
+    const tweede = await alsJson('/api/slack/test', { method: 'POST' });
+    assert.equal(tweede.status, 200);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ontvangen.length, 2, 'tweede testbericht verstuurd');
+    assert.ok(JSON.stringify(ontvangen[1]).includes('https://dashboard.werdensmedia.net'), 'de link wijst naar het publieke dashboard');
+    assert.ok(!JSON.stringify(ontvangen[1]).includes('127.0.0.1:'), 'geen localhost-link meer in het bericht');
+
     // Een echte storing door de meld()-functie moet ook bij Slack aankomen.
     const { meld } = require('../server');
     meld('127.0.0.9', 'host neer', 'Testhost is niet bereikbaar');
     await new Promise((r) => setTimeout(r, 300));
-    assert.equal(ontvangen.length, 2, 'storing door meld() is verstuurd');
-    assert.match(ontvangen[1].text, /Testhost is niet bereikbaar/);
-    assert.ok(ontvangen[1].blocks[0].text.text.includes('127.0.0.9'), 'IP staat in het bericht');
+    assert.equal(ontvangen.length, 3, 'storing door meld() is verstuurd');
+    assert.match(ontvangen[2].text, /Testhost is niet bereikbaar/);
+    assert.ok(ontvangen[2].blocks[0].text.text.includes('127.0.0.9'), 'IP staat in het bericht');
 
     // Uitzetten laat de koppeling staan, maar stopt het versturen.
     const uit = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { slack_aan: false } });

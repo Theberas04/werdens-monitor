@@ -2249,6 +2249,8 @@ async function laadInstellingen() {
       + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Slack-meldingen</h2><span class="chip ' + (d.slack_aan && d.slack_webhook ? 'groen' : '') + '">' + (d.slack_aan && d.slack_webhook ? 'aan' : 'uit') + '</span></div><div class="kaart-body">'
       + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">Storingen worden als bericht naar een Slack-kanaal gestuurd. Maak in Slack een <b>Incoming Webhook</b> (App-directory → Incoming Webhooks → Add to Slack), kies het kanaal en plak de URL hier. Eén storing wordt één keer gemeld; blijft hij open, dan niet elke meetronde opnieuw.</p>'
       + '<form id="slackform"><label class="veld"><span>Webhook-URL</span><input name="slack_webhook" value="' + esc(d.slack_webhook || '') + '" placeholder="https://hooks.slack.com/services/..." autocomplete="off" spellcheck="false"></label>'
+      + '<label class="veld"><span>Publiek adres — hier wijst de link in het bericht naar</span><input name="publieke_url" value="' + esc(d.publieke_url || '') + '" placeholder="https://dashboard.werdensmedia.net" autocomplete="off" spellcheck="false"></label>'
+      + '<p class="hint" style="margin:-4px 0 12px">Nu gebruikt: <b>' + esc(d.publieke_url_actief || '') + '</b>' + (d.laatste_adres && d.laatste_adres !== d.publieke_url_actief ? ' · laatst geopend via ' + esc(d.laatste_adres) : '') + '. Laat leeg om het adres te gebruiken waarmee je het dashboard opent.</p>'
       + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 14px"><label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_aan"' + (d.slack_aan ? ' checked' : '') + '> Meldingen versturen</label>'
       + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_herstel"' + (d.slack_herstel ? ' checked' : '') + '> Ook herstel melden</label></div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Opslaan</button><button class="knop" type="button" id="slack-test">Testbericht</button></div></form>'
@@ -2297,6 +2299,7 @@ async function laadInstellingen() {
       try {
         await api('/api/instellingen', { method: 'PATCH', lichaam: {
           slack_webhook: f.get('slack_webhook') || '',
+          publieke_url: f.get('publieke_url') || '',
           slack_aan: !!f.get('slack_aan'),
           slack_herstel: !!f.get('slack_herstel'),
         } });
