@@ -107,7 +107,10 @@ fi
 if ! id -u werdens >/dev/null 2>&1; then
   useradd --system --home "$MAP" --shell /usr/sbin/nologin werdens
 fi
-chown -R werdens:werdens "$MAP/data"
+# De hele map, niet alleen data/: de app moet zijn eigen bestanden kunnen
+# vervangen als hij zichzelf bijwerkt via het dashboard. Root mag daar altijd
+# bij, dus git als root blijft werken.
+chown -R werdens:werdens "$MAP"
 
 # Omgevingsbestand met de geheimen (alleen voor root en de dienst leesbaar)
 if [ ! -f /etc/$DIENST.env ]; then
