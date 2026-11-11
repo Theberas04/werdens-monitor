@@ -1727,8 +1727,9 @@ function renderHosts(d) {
     + '<p class="hint">Het dashboard haalt naam (reverse DNS), open poorten, diensten met titel, pingtijd en het TLS-certificaat op. Scannen duurt een paar seconden.</p>'
     + '</form></div></details>';
 
+  const alertsVerborgen = String(hostZoek || '').trim() ? 'display:none;' : '';
   const alerts = (d.alerts && d.alerts.length)
-    ? '<div class="kaart" id="storingen-kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts">'
+    ? '<div class="kaart" id="storingen-kaart" style="margin-bottom:14px;' + alertsVerborgen + '"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts">'
       + chip(d.alerts.length + ' open', 'amber') + '<button class="knop klein" data-ga="meldingen">Alle meldingen</button></div></div>'
       + '<div class="kaart-body alerts">' + d.alerts.slice(0, 3).map((a) =>
         '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht)
