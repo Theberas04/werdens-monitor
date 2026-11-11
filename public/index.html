@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.8.1">
+<meta name="version" content="1.8.2">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -410,6 +410,28 @@ details.uitklap[open]>summary{border-color:var(--line)}
 /* ── IP-adressen ── */
 .host-grid{display:grid;gap:12px;grid-template-columns:1fr}
 @media(min-width:780px){.host-grid{grid-template-columns:1fr 1fr}}
+/* Zoekbalk op de IP-tab: op een telefoon blijft hij onder de kop staan. */
+.zoekbalk{display:flex;align-items:center;gap:9px;background:var(--pane);border:1px solid var(--line2);
+  border-radius:12px;padding:0 13px;margin-bottom:14px;box-shadow:var(--schaduw)}
+.zoekbalk:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.zoekbalk .zoek-ico{display:grid;place-items:center;color:var(--muted2);flex:none}
+.zoekbalk .zoek-ico svg{width:18px;height:18px}
+.zoekbalk input{flex:1;min-width:0;border:0;background:transparent;box-shadow:none;height:44px;
+  padding:0;font-size:14.5px;border-radius:0}
+.zoekbalk input:focus{border-color:transparent;box-shadow:none}
+.zoekbalk .zoek-tel{flex:none;font-size:12px;color:var(--muted2);font-variant-numeric:tabular-nums;
+  white-space:nowrap;border-left:1px solid var(--line);padding-left:10px}
+.ip-balk{display:flex;flex-direction:column}
+@media(min-width:761px){.zoekbalk{max-width:520px}}
+@media(max-width:760px){
+  .zoekbalk{position:sticky;top:59px;z-index:26;background:var(--pane);border-radius:12px;
+    margin:0 0 12px;box-shadow:0 12px 20px -16px rgba(15,23,42,.6)}
+  .ip-balk{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .ip-balk details.uitklap{margin-bottom:0}
+  .ip-balk details.uitklap[open]{grid-column:1/-1}
+  .ip-balk details.uitklap>summary{padding:11px 12px;font-size:12px;gap:7px;white-space:nowrap;overflow:hidden}
+  .ip-balk details.uitklap>summary .plus{margin-left:0;flex:none}
+}
 .host{background:var(--pane);border:1px solid var(--line);border-radius:14px;padding:14px 16px;
   display:flex;flex-direction:column;gap:9px;cursor:pointer;box-shadow:var(--schaduw);transition:border-color .12s,transform .06s}
 .host:hover{border-color:#b6c7dd;transform:translateY(-1px)}
@@ -654,6 +676,7 @@ const ico = {
   span: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 11-2.3-5.6M20 4v5h-5"/></svg>',
   fles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M9 3h6v3l2 3v11a1 1 0 01-1 1H8a1 1 0 01-1-1V9l2-3z"/></svg>',
   netwerk: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M12 7.2v4.3M12 11.5l-5.5 4.6M12 11.5l5.5 4.6"/></svg>',
+  zoek: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
 };
 function leeg(tekst) { return '<p class="leeg" style="padding:18px">' + esc(tekst) + '</p>'; }
 function chip(tekst, kleur = '') { return '<span class="chip ' + kleur + '">' + esc(tekst) + '</span>'; }
@@ -1590,6 +1613,8 @@ function bevestig(titel, tekst, ja) {
 
 // ── IP-adressen ───────────────────────────────────────────────────────────────
 let hostsCache = [];
+let hostsLaatst = null;        // laatste /api/hosts-antwoord, voor het live filteren
+let hostZoek = '';             // zoekterm in de IP-lijst
 let hostDetail = null;
 let serverDetail = null;
 let apparatenCache = [];
@@ -1630,6 +1655,50 @@ async function laadHosts() {
   }
 }
 
+function hostKaart(h) {
+  const st = hostStatus(h.status);
+  const naam = h.naam || h.hostnaam || h.ip;
+  const onder = [h.hostnaam && h.hostnaam !== naam ? h.hostnaam : '', h.laatste_scan ? 'gescand ' + geleden(h.laatste_scan) : 'nog niet gescand',
+    h.ping_ms !== null && h.ping_ms !== undefined ? nlGetal(h.ping_ms) + ' ms' : ''].filter(Boolean).join(' · ');
+  return '<div class="host ' + st.klasse + '" data-host="' + esc(h.ip) + '">'
+    + '<div class="top"><span class="stip ' + st.klasse + (st.klasse === 'neer' ? ' puls' : '') + '"></span>'
+    + '<span class="naam">' + esc(naam) + '</span><span class="ip">' + esc(h.ip) + '</span>'
+    + '<span class="rechts">' + (h.tickets_open ? chip(h.tickets_open + ' ticket' + (h.tickets_open === 1 ? '' : 's'), 'amber') : '')
+    + (h.status === 'onderhoud' ? chip('onderhoud', 'blauw') : '') + '</span></div>'
+    + '<div class="onder">' + esc(onder) + '</div>'
+    + poortChips(h.poorten)
+    + '<div class="voet"><span>' + st.tekst + '</span>'
+    + (h.uptime24 !== null && h.uptime24 !== undefined ? '<span>· ' + nlGetal(h.uptime24) + '% up (24 u)</span>' : '')
+    + (h.sites && h.sites.length ? '<span>· ' + h.sites.length + ' site' + (h.sites.length === 1 ? '' : 's') + '</span>' : '')
+    + '<span class="rechts" style="margin-left:auto">' + tlsChip(h) + '</span></div>'
+    + '</div>';
+}
+// Zoekterm past bij naam, hostnaam, IP of een open poort.
+function hostPast(h) {
+  const q = String(hostZoek || '').trim().toLowerCase();
+  if (!q) return true;
+  return [h.naam || '', h.hostnaam || '', h.ip || '', ...(h.poorten || [])].join(' ').toLowerCase().includes(q);
+}
+function hostRaster(d) {
+  const alle = d.hosts || [];
+  if (!alle.length) return '<p class="leeg">Nog geen IP-adressen. Voeg er hierboven één toe; de eerste scan start meteen.</p>';
+  const lijst = alle.filter(hostPast);
+  if (!lijst.length) return '<p class="leeg">Geen IP-adressen gevonden voor &bdquo;' + esc(String(hostZoek || '').trim()) + '&rdquo;.</p>';
+  return lijst.map(hostKaart).join('');
+}
+function hostTelling(d) {
+  const alle = (d.hosts || []).length;
+  const q = String(hostZoek || '').trim();
+  if (!q) return alle + ' adres' + (alle === 1 ? '' : 'sen');
+  return (d.hosts || []).filter(hostPast).length + ' van ' + alle;
+}
+function koppelHostKaarten() {
+  beeld.querySelectorAll('[data-host]').forEach((el) => el.addEventListener('click', () => {
+    hostDetail = el.dataset.host;
+    laadHostDetail(hostDetail);
+  }));
+}
+
 function renderHosts(d) {
   const netwerkKaart = '<details class="uitklap" id="netwerkform"><summary>' + ico.netwerk
     + ' Netwerk scannen<span class="plus">+</span></summary>'
@@ -1659,35 +1728,28 @@ function renderHosts(d) {
     + '</form></div></details>';
 
   const alerts = (d.alerts && d.alerts.length)
-    ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts"><button class="knop klein" data-ga="hosts">Naar IP-adressen</button></div></div>'
-      + '<div class="kaart-body alerts">' + d.alerts.slice(0, 6).map((a) =>
+    ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts">'
+      + chip(d.alerts.length + ' open', 'amber') + '<button class="knop klein" data-ga="meldingen">Alle meldingen</button></div></div>'
+      + '<div class="kaart-body alerts">' + d.alerts.slice(0, 3).map((a) =>
         '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht)
-        + '</div><span class="tijd">' + geleden(a.op) + '</span></div>').join('') + '</div></div>'
+        + '</div><span class="tijd">' + geleden(a.op) + '</span></div>').join('')
+      + (d.alerts.length > 3 ? '<p class="hint" style="margin:2px 0 0">Nog ' + (d.alerts.length - 3) + ' storing' + (d.alerts.length - 3 === 1 ? '' : 'en') + ' — zie Alle meldingen.</p>' : '')
+      + '</div></div>'
     : '';
 
-  const kaarten = (d.hosts && d.hosts.length) ? d.hosts.map((h) => {
-    const st = hostStatus(h.status);
-    const naam = h.naam || h.hostnaam || h.ip;
-    const onder = [h.hostnaam && h.hostnaam !== naam ? h.hostnaam : '', h.laatste_scan ? 'gescand ' + geleden(h.laatste_scan) : 'nog niet gescand',
-      h.ping_ms !== null && h.ping_ms !== undefined ? nlGetal(h.ping_ms) + ' ms' : ''].filter(Boolean).join(' · ');
-    return '<div class="host ' + st.klasse + '" data-host="' + esc(h.ip) + '">'
-      + '<div class="top"><span class="stip ' + st.klasse + (st.klasse === 'neer' ? ' puls' : '') + '"></span>'
-      + '<span class="naam">' + esc(naam) + '</span><span class="ip">' + esc(h.ip) + '</span>'
-      + '<span class="rechts">' + (h.tickets_open ? chip(h.tickets_open + ' ticket' + (h.tickets_open === 1 ? '' : 's'), 'amber') : '')
-      + (h.status === 'onderhoud' ? chip('onderhoud', 'blauw') : '') + '</span></div>'
-      + '<div class="onder">' + esc(onder) + '</div>'
-      + poortChips(h.poorten)
-      + '<div class="voet"><span>' + st.tekst + '</span>'
-      + (h.uptime24 !== null && h.uptime24 !== undefined ? '<span>· ' + nlGetal(h.uptime24) + '% up (24 u)</span>' : '')
-      + (h.sites && h.sites.length ? '<span>· ' + h.sites.length + ' site' + (h.sites.length === 1 ? '' : 's') + '</span>' : '')
-      + '<span class="rechts" style="margin-left:auto">' + tlsChip(h) + '</span></div>'
-      + '</div>';
-  }).join('') : '<div class="kaart"><div class="kaart-body"><p class="leeg">Nog geen IP-adressen. Voeg er hierboven één toe; de eerste scan start meteen.</p></div></div>';
+  hostsLaatst = d;
+  const zoekbalk = '<div class="zoekbalk" id="ip-zoek">'
+    + '<span class="zoek-ico">' + ico.zoek + '</span>'
+    + '<input id="hzoek" type="search" placeholder="Zoek op naam, IP of poort…" autocomplete="off" value="' + esc(hostZoek) + '">'
+    + '<span class="zoek-tel" id="hzoek-tel">' + hostTelling(d) + '</span>'
+    + '</div>';
 
-  beeld.innerHTML = nieuw + netwerkKaart + alerts
+  beeld.innerHTML = zoekbalk
+    + '<div class="ip-balk">' + netwerkKaart + nieuw + '</div>'
+    + alerts
     + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>IP-adressen</h2><div class="rechts">'
-    + '<span class="meting-tijd">' + hostsCache.length + ' adressen</span></div></div><div class="kaart-body">'
-    + '<div class="host-grid">' + kaarten + '</div></div></div>';
+    + '<span class="meting-tijd" id="host-teller">' + hostsCache.length + ' adressen</span></div></div>'
+    + '<div class="kaart-body"><div class="host-grid" id="host-raster">' + hostRaster(d) + '</div></div></div>';
   koppelHosts();
 }
 
@@ -1714,10 +1776,25 @@ function koppelHosts() {
       knop.textContent = 'Toevoegen en meteen scannen';
     }
   });
-  beeld.querySelectorAll('[data-host]').forEach((el) => el.addEventListener('click', () => {
-    hostDetail = el.dataset.host;
-    laadHostDetail(hostDetail);
+  koppelHostKaarten();
+  beeld.querySelectorAll('[data-ga]').forEach((el) => el.addEventListener('click', () => {
+    huidigeTab = el.dataset.ga;
+    siteDetail = null; ticketDetail = null;
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b.dataset.tab === huidigeTab));
+    laadHuidig();
   }));
+  // Live filteren: alleen het raster verversen, zodat het zoekveld focus en cursor houdt.
+  const veld = $('#hzoek');
+  if (veld) veld.addEventListener('input', (e) => {
+    hostZoek = e.target.value;
+    const raster = $('#host-raster');
+    if (raster) raster.innerHTML = hostRaster(hostsLaatst);
+    const tel = $('#hzoek-tel');
+    if (tel) tel.textContent = hostTelling(hostsLaatst);
+    const kop = $('#host-teller');
+    if (kop) kop.textContent = hostZoek ? hostTelling(hostsLaatst) : hostsCache.length + ' adressen';
+    koppelHostKaarten();
+  });
 }
 
 function koppelNetwerk() {
