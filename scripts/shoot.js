@@ -18,6 +18,7 @@ const TABS = [
   ['projecten', 'Projecten'],
   ['websites', 'Websites'],
   ['hosts', 'IP-adressen'],
+  ['servers', 'Servers'],
   ['tickets', 'Tickets'],
   ['instellingen', 'Instellingen'],
 ];
@@ -106,6 +107,15 @@ async function doel() {
   await schiet('host-detail-desktop.png');
   await eval_(`(() => { const b = document.querySelector('[data-terug]'); if (b) b.click(); return true; })()`);
   await wacht(1500);
+
+  // detail van de eerste server, zodat de hardwarepagina gedocumenteerd is
+  await eval_(`(() => { const b = document.querySelector('nav.tabs button[data-tab="servers"]'); if (b) b.click(); return true; })()`);
+  await wacht(1600);
+  await eval_(`(() => { const s = document.querySelector('[data-server]'); if (s) { s.click(); return true; } return false; })()`);
+  await wacht(1800);
+  await schiet('server-detail-desktop.png');
+  await eval_(`(() => { const b = document.querySelector('[data-terug]'); if (b) { b.click(); return true; } return false; })()`);
+  await wacht(1200);
 
   // mobiel: 412×915 (Pixel-formaat), daarna elke tab
   await stuur('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 1, mobile: true });

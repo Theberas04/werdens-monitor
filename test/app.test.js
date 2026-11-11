@@ -208,6 +208,97 @@ test('elk inline script compileert en elk script-bestand bestaat', async () => {
   }
 });
 
+test('servers: toevoegen, meten via de agent en detail lezen', async () => {
+  const gemaakt = await alsJson('/api/servers', { method: 'POST', lichaam: { naam: 'Testsrv', host: '127.0.0.1' } });
+  assert.equal(gemaakt.status, 201);
+  assert.ok(gemaakt.data.token, 'token wordt uitgegeven');
+  const id = gemaakt.data.server.id;
+
+  const lijst = await alsJson('/api/servers');
+  assert.ok(lijst.data.servers.some((s) => s.naam === 'Testsrv'));
+
+  const fout = await fetch(basis + '/api/agent/hardware', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-agent-token': 'fout' },
+    body: JSON.stringify({ cpu: {}, geheugen: {} }),
+  });
+  assert.equal(fout.status, 401, 'onbekend token wordt geweigerd');
+
+  const meting = {
+    hostnaam: 'testsrv', platform: 'linux', release: '6.1', arch: 'x64', uptime_s: 90000,
+    cpu: { model: 'Test-CPU', kernen: 4, mhz: 2400, gebruik_pct: 12.5, load_1: 0.1, load_5: 0.2, load_15: 0.3 },
+    geheugen: { totaal_mb: 1000, gebruikt_mb: 500, vrij_mb: 500, gebruikt_pct: 50, swap_totaal_mb: 0, swap_gebruikt_mb: 0, swap_pct: 0 },
+    schijven: [{ apparaat: '/dev/test', mount: '/', totaal_gb: 10, gebruikt_gb: 4, vrij_gb: 6, gebruikt_pct: 40 }],
+    gpu: [], temperatuur: [], netwerk: { koppen: [], rx_gb: 0, tx_gb: 0 }, op: new Date().toISOString(),
+  };
+  const ok = await fetch(basis + '/api/agent/hardware', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-agent-token': gemaakt.data.token },
+    body: JSON.stringify(meting),
+  });
+  assert.equal(ok.status, 200);
+
+  const detail = await alsJson('/api/servers/' + id);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.data.server.status, 'ok');
+  assert.equal(detail.data.server.cpu_pct, 12.5);
+  assert.equal(detail.data.server.data.cpu.model, 'Test-CPU');
+  assert.ok(detail.data.metingen.length >= 1);
+
+  const verwijderd = await alsJson('/api/servers/' + id, { method: 'DELETE' });
+  assert.equal(verwijderd.status, 200);
+});
+
+test('Slack-meldingen: webhook instellen, testen en ongeldige URL weigeren', async () => {
+  process.env.WM_SLACK_TEST = '1';
+  const ontvangen = [];
+  const hook = http.createServer((req, res) => {
+    let lichaam = '';
+    req.on('data', (c) => { lichaam += c; });
+    req.on('end', () => {
+      ontvangen.push(JSON.parse(lichaam || '{}'));
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+  });
+  await new Promise((r) => hook.listen(0, '127.0.0.1', r));
+  const url = 'http://127.0.0.1:' + hook.address().port + '/services/T000/B000/xyz';
+  try {
+    const ongeldig = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { slack_webhook: 'http://example.com/hook' } });
+    assert.equal(ongeldig.status, 400, 'geen Slack-URL moet geweigerd worden');
+    assert.match(ongeldig.data.fout, /hooks\.slack\.com/);
+
+    const opgeslagen = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { slack_webhook: url, slack_aan: true } });
+    assert.equal(opgeslagen.status, 200);
+    assert.equal(opgeslagen.data.slack_aan, true);
+
+    const testmelding = await alsJson('/api/slack/test', { method: 'POST' });
+    assert.equal(testmelding.status, 200);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ontvangen.length, 1, 'precies één testbericht');
+    assert.match(ontvangen[0].text, /Testmelding/);
+    assert.ok(Array.isArray(ontvangen[0].blocks), 'bericht heeft Slack-blokken');
+
+    const gelezen = await alsJson('/api/instellingen');
+    assert.equal(gelezen.data.slack_aan, true);
+    assert.equal(gelezen.data.slack_webhook, url);
+
+    // Een echte storing door de meld()-functie moet ook bij Slack aankomen.
+    const { meld } = require('../server');
+    meld('127.0.0.9', 'host neer', 'Testhost is niet bereikbaar');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ontvangen.length, 2, 'storing door meld() is verstuurd');
+    assert.match(ontvangen[1].text, /Testhost is niet bereikbaar/);
+    assert.ok(ontvangen[1].blocks[0].text.text.includes('127.0.0.9'), 'IP staat in het bericht');
+
+    // Uitzetten laat de koppeling staan, maar stopt het versturen.
+    const uit = await alsJson('/api/instellingen', { method: 'PATCH', lichaam: { slack_aan: false } });
+    assert.equal(uit.status, 200);
+    assert.equal(uit.data.slack_aan, false);
+    assert.equal(uit.data.slack_webhook, url);
+  } finally {
+    hook.close();
+  }
+});
+
 test('de API beschermt zich tegen een protocol-relatief pad', async () => {
   const r = await fetch(basis + '///api/overzicht', { headers: { cookie: koek } });
   assert.ok([200, 404].includes(r.status));

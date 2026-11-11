@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1600px; height: 600px; overflow: hidden; }
+  body {
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(900px 420px at 82% -10%, #dff3ff 0%, rgba(223,243,255,0) 62%),
+      radial-gradient(700px 380px at -8% 108%, #e3f9f4 0%, rgba(227,249,244,0) 60%),
+      #f7fafd;
+    color: #0f172a;
+  }
+  .doek { position: relative; width: 1600px; height: 600px; padding: 64px 72px; display: flex; gap: 56px; }
+  .links { width: 720px; flex: none; display: flex; flex-direction: column; }
+  .merk { display: flex; align-items: center; gap: 22px; }
+  .merk img { height: 96px; width: auto; display: block; }
+  .merk-tekst { display: flex; flex-direction: column; gap: 4px; }
+  .merk-tekst b { font-size: 25px; letter-spacing: .02em; }
+  .merk-tekst span { font-size: 13px; letter-spacing: .16em; color: #64748b; font-weight: 600; }
+  h1 { font-size: 55px; line-height: 1.06; letter-spacing: -0.03em; margin: 38px 0 16px; font-weight: 800; max-width: 720px; }
+  h1 em { font-style: normal; white-space: nowrap; background: linear-gradient(105deg, #2ea3f2 0%, #1e73be 62%, #14b8a6 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { font-size: 20px; line-height: 1.45; color: #475569; margin: 0 0 26px; max-width: 660px; }
+  .punten { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 30px; }
+  .punt { display: inline-flex; align-items: center; gap: 9px; padding: 9px 15px; border-radius: 999px;
+    background: #ffffff; border: 1px solid #dbe6f2; font-size: 15px; font-weight: 600; color: #1e293b;
+    box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .punt i { width: 8px; height: 8px; border-radius: 50%; background: #2ea3f2; }
+  .punt:nth-child(2n) i { background: #14b8a6; }
+  .punt:nth-child(3n) i { background: #1e73be; }
+  .onder { margin-top: auto; display: flex; align-items: center; gap: 12px; font-size: 14px; color: #64748b; font-weight: 600; }
+  .onder code { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; background: #0f172a; color: #e2e8f0;
+    padding: 9px 14px; border-radius: 9px; font-size: 13px; }
+  .rechts { flex: 1; position: relative; }
+  .kaart { position: absolute; background: #fff; border: 1px solid #dbe6f2; border-radius: 16px; overflow: hidden;
+    box-shadow: 0 22px 50px -22px rgba(15,23,42,.32), 0 2px 6px rgba(15,23,42,.06); }
+  .kaart.groot { width: 760px; top: 4px; left: 0; }
+  .kaart.klein { width: 330px; bottom: 4px; left: -104px; }
+  .kaart.klein.rechts { left: auto; right: 0; bottom: -10px; }
+  .kaart img { display: block; width: 100%; height: auto; }
+  .balk { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: #f8fafc;
+    border-bottom: 1px solid #e8eef5; }
+  .balk i { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; }
+  .balk i:first-child { background: #f87171; } .balk i:nth-child(2) { background: #fbbf24; } .balk i:nth-child(3) { background: #34d399; }
+  .balk span { margin-left: 8px; font-size: 10.5px; color: #94a3b8; font-family: ui-monospace, Menlo, monospace; }
+  .label { position: absolute; top: -14px; left: 22px; background: #2ea3f2; color: #fff; font-size: 12px;
+    font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; }
+</style>
+</head>
+<body>
+  <div class="doek">
+    <div class="links">
+      <div class="merk">
+        <img src="../public/assets/werdens-media-logo.png" alt="Werdens Media">
+        <div class="merk-tekst"><b>Werdens Monitor</b><span>WERDENS MEDIA · INFRASTRUCTUUR</span></div>
+      </div>
+      <h1>Al je sites, repo's en <em>IP-adressen</em><br>in één dashboard.</h1>
+      <p class="lead">Eigen stack naar het voorbeeld van Checkmk. Zonder npm, zonder Docker — één Node-proces met SQLite, Nederlandse interface en PWA.</p>
+      <div class="punten">
+        <span class="punt"><i></i>GitHub-projecten met versie en CI</span>
+        <span class="punt"><i></i>Websites met TLS en stats</span>
+        <span class="punt"><i></i>IP-hosts met poortscan</span>
+        <span class="punt"><i></i>CPU, GPU en schijven per server</span>
+        <span class="punt"><i></i>Tickets voor je ICT-agent</span>
+        <span class="punt"><i></i>Meldingen naar Slack</span>
+      </div>
+      <div class="onder">Installeren met één regel <code>curl -fsSL …/installeer.sh | bash</code></div>
+    </div>
+    <div class="rechts">
+      <div class="kaart groot">
+        <div class="balk"><i></i><i></i><i></i><span>werdens-monitor · overzicht</span></div>
+        <img src="img/overzicht-desktop.png" alt="Overzicht van Werdens Monitor">
+      </div>
+      <div class="kaart klein">
+        <div class="label">IP-adressen</div>
+        <div class="balk"><i></i><i></i><i></i><span>hosts</span></div>
+        <img src="img/hosts-desktop.png" alt="IP-adressen met poortscan">
+      </div>
+      <div class="kaart klein rechts">
+        <div class="label">Servers</div>
+        <div class="balk"><i></i><i></i><i></i><span>hardware</span></div>
+        <img src="img/server-detail-desktop.png" alt="CPU, geheugen, schijven en GPU per server">
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -251,7 +251,7 @@ details.uitklap .binnen{padding:16px}
   .merk .sub{display:none}
   .merk .naam{font-size:15px}
   .meting-tijd{display:none}
-  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(5,1fr);gap:0;
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(6,1fr);gap:0;
     background:rgba(9,14,20,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line);border-bottom:0;
     padding:6px 4px calc(6px + env(safe-area-inset-bottom));margin:0}
   nav.tabs button{flex-direction:column;gap:3px;padding:6px 2px 4px;font-size:10.5px;min-height:46px;border-bottom:0;border-radius:9px;justify-content:center;overflow:hidden}
@@ -425,6 +425,51 @@ details.uitklap[open]>summary{border-color:var(--line)}
   nav.tabs button.actief{background:var(--accent-soft)}
   .host-kop h2{font-size:19px}
 }
+
+/* servers */
+.kaarten-kop{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.kaarten-kop h2{font-size:21px;margin:0 0 4px;letter-spacing:-.02em}
+.kaarten-kop .knop{margin-left:auto}
+.srv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.srv{display:block;background:var(--pane);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;
+  text-decoration:none;color:var(--txt);transition:border-color .15s,box-shadow .15s}
+.srv:hover{border-color:#bcd8ee;box-shadow:0 6px 20px -14px rgba(15,23,42,.35)}
+.srv-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px}
+.srv-naam{font-weight:700;font-size:15px}
+.srv-host{font-size:12px;color:var(--muted2);font-family:var(--mono);margin-bottom:12px}
+.srv-meters{display:flex;flex-direction:column;gap:7px}
+.srv-voet{display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:9px;margin-top:12px;
+  font-size:11.5px;color:var(--muted2)}
+.srv-tijd{white-space:nowrap}
+.meter-rij{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.meter-label{width:48px;flex:none;font-weight:600;color:var(--muted2)}
+.meter{flex:1;height:7px;border-radius:99px;background:var(--pane3);overflow:hidden;min-width:40px}
+.meter>i{display:block;height:100%;border-radius:99px;background:var(--accent);transition:width .4s}
+.meter.waarschuw>i{background:var(--amber)} .meter.gevaar>i{background:var(--red)}
+.meter-rij b{min-width:36px;text-align:right;font-size:12px;color:var(--txt)}
+.meter-extra{font-size:11px;color:var(--muted2);white-space:nowrap}
+.meters{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.meters .kaart{margin:0}
+.meter-titel{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted2);margin-bottom:10px}
+.meter-detail{font-size:12px;color:var(--muted2);margin-top:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srv-kop{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
+.srv-kop .merkblok{flex:1;min-width:0}
+.srv-kop h2{font-size:22px;margin:0 0 3px;letter-spacing:-.02em;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.srv-kop .srv-sub{font-family:var(--mono);font-size:12.5px;color:var(--muted2)}
+.srv-kop .acties{display:flex;gap:8px;flex-wrap:wrap}
+.srv-tabel{width:100%;border-collapse:collapse;font-size:13px}
+.srv-tabel th,.srv-tabel td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.srv-tabel thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);background:var(--pane2)}
+.srv-tabel tbody th{font-weight:600;color:var(--muted);width:120px;white-space:nowrap}
+.srv-tabel tr:last-child td,.srv-tabel tr:last-child th{border-bottom:0}
+.srv-tabel .rechts{text-align:right;color:var(--muted2);white-space:nowrap}
+.srv-tabel .mono{font-family:var(--mono);font-size:11.5px;color:var(--muted2)}
+.grafiek{display:flex;align-items:flex-end;gap:3px;height:44px}
+.grafiek i{flex:1;min-width:2px;border-radius:3px 3px 0 0;background:var(--accent);opacity:.75}
+.grafiek i.waarschuw{background:var(--amber)} .grafiek i.gevaar{background:var(--red)}
+.tokenvak{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);
+  font-size:12px;color:var(--txt);word-break:break-all}
+@media(max-width:760px){.srv-grid{grid-template-columns:minmax(0,1fr)}.srv-tabel{font-size:12px}.srv-tabel th,.srv-tabel td{padding:8px 9px}.meters{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body class="uit">
@@ -479,6 +524,10 @@ details.uitklap[open]>summary{border-color:var(--line)}
     <button data-tab="hosts">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
       <span class="navfull">IP-adressen</span><span class="navkort">IP's</span><span class="teller" id="tab-hosts"></span>
+    </button>
+    <button data-tab="servers">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M12 6.5h5M12 17.5h5"/></svg>
+      <span class="navfull">Servers</span><span class="navkort">Servers</span><span class="teller" id="tab-servers"></span>
     </button>
     <button data-tab="tickets">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 000 4v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a2 2 0 000-4z"/><path d="M12 6v2M12 11v2M12 16v2"/></svg>
@@ -607,6 +656,7 @@ $('#tabs').addEventListener('click', (e) => {
   siteDetail = null;
   ticketDetail = null;
   hostDetail = null;
+  serverDetail = null;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b === knop));
   laadHuidig();
 });
@@ -615,6 +665,7 @@ function laadHuidig(metKracht = false) {
   else if (huidigeTab === 'projecten') laadProjecten(metKracht);
   else if (huidigeTab === 'websites') siteDetail ? laadSiteDetail(siteDetail) : laadSites();
   else if (huidigeTab === 'hosts') hostDetail ? laadHostDetail(hostDetail) : laadHosts();
+  else if (huidigeTab === 'servers') serverDetail ? laadServerDetail(serverDetail) : laadServers();
   else if (huidigeTab === 'tickets') ticketDetail ? laadTicketDetail(ticketDetail) : laadTickets();
   else laadInstellingen();
 }
@@ -634,6 +685,7 @@ async function laadOverzicht() {
     zetTeller('tab-sites', s.sites);
     zetTeller('tab-tickets', s.tickets_open, s.tickets_open > 0);
     zetTeller('tab-hosts', s.hosts, s.hosts_neer > 0);
+    zetTeller('tab-servers', s.servers, s.servers_vol > 0);
     $('#meting-tijd').textContent = s.laatste_meting ? 'Laatste meting ' + geleden(s.laatste_meting) : '';
     const sitesHtml = d.sites.length ? d.sites.map((site) => {
       const st = statusVan(site);
@@ -664,6 +716,15 @@ async function laadOverzicht() {
         + '<div class="onder">' + esc(h.ip) + ' · ' + (h.laatste_scan ? geleden(h.laatste_scan) : 'nog niet gescand') + '</div></div>'
         + '<div class="rechts">' + chip(h.poorten.length + ' poort' + (h.poorten.length === 1 ? '' : 'en'), h.poorten.length ? 'groen' : 'rood') + '</div></div>';
     }).join('') : leeg('Nog geen IP-adressen toegevoegd.');
+    const serverRijen = d.servers && d.servers.length ? d.servers.map((sv) => {
+      const st = serverStatus(sv.status);
+      return '<div class="rij" data-server="' + sv.id + '">'
+        + '<span class="stip ' + st.klasse + (st.klasse === 'neer' ? ' puls' : '') + '"></span>'
+        + '<div class="groot"><div class="naam"><span class="tekst">' + esc(sv.naam) + '</span>'
+        + (sv.lokaal ? chip('deze monitor', 'blauw') : '') + '</div>'
+        + '<div class="onder">' + esc(sv.host || '') + ' · CPU ' + (sv.cpu_pct ?? '—') + '% · RAM ' + (sv.ram_pct ?? '—') + '% · schijf ' + (sv.disk_pct ?? '—') + '%</div></div>'
+        + '<div class="rechts">' + (sv.temp_c !== null && sv.temp_c !== undefined ? '<span class="chip">' + nlGetal(sv.temp_c) + ' °C</span>' : '') + '</div></div>';
+    }).join('') : leeg('Nog geen servers gemeten.');
     const gebeurtenissen = d.gebeurtenissen && d.gebeurtenissen.length ? '<div class="alerts">' + d.gebeurtenissen.map((g) =>
       '<div class="alert"><div class="tekst"><b>' + esc(g.soort) + '</b>' + (g.ip ? ' · ' + esc(g.ip) : '') + ' — ' + esc(g.tekst)
       + '</div><span class="tijd">' + geleden(g.op) + '</span></div>').join('') + '</div>' : leeg('Nog geen gebeurtenissen.');
@@ -683,6 +744,7 @@ async function laadOverzicht() {
       + kpi('Open tickets', s.tickets_open, s.tickets_kritiek ? s.tickets_kritiek + ' kritiek' : 'geen kritieke', s.tickets_kritiek ? 'fout' : (s.tickets_open ? 'waarschuwing' : 'goed'))
       + kpi('CI-fouten', s.projecten_ci_fout, s.projecten_ci_fout ? 'laatste workflow faalt' : 'alle workflows groen', s.projecten_ci_fout ? 'fout' : 'goed')
       + kpi('IP-adressen', (s.hosts_ok || 0) + '/' + (s.hosts || 0), s.hosts_neer ? s.hosts_neer + ' niet bereikbaar' : (s.hosts ? 'alle hosts bereikbaar' : 'nog geen hosts'), s.hosts_neer ? 'fout' : 'goed')
+      + kpi('Servers', (s.servers_ok || 0) + '/' + (s.servers || 0), s.servers_vol ? s.servers_vol + ' met hoog gebruik' : (s.servers ? 'gebruik normaal' : 'nog geen servers'), s.servers_vol ? 'waarschuwing' : 'goed')
       + '</div>'
       + (s.sites_neer ? '<div class="kaart" style="margin-bottom:14px;border-color:rgba(255,95,111,.35);background:linear-gradient(90deg,var(--red-soft),transparent 60%)"><div class="kaart-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="stip neer puls"></span><b style="font-size:14px">' + d.sites.filter((x) => x.actief && (!x.laatste || !x.laatste.ok)).map((x) => esc(x.naam)).join(', ') + '</b><span style="color:var(--muted);font-size:13px">reageert niet — bekijk de details bij Websites</span></div></div>' : '')
       + '<div class="raster twee" style="margin-bottom:14px">'
@@ -691,6 +753,7 @@ async function laadOverzicht() {
       + '</div>'
       + (d.alerts && d.alerts.length ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Storingen</h2><div class="rechts"><button class="knop klein" data-ga="hosts">Alle IP-adressen</button></div></div><div class="kaart-body alerts">'
         + d.alerts.slice(0, 4).map((a) => '<div class="alert ' + (a.soort === 'host neer' ? 'rood' : 'amber') + '"><div class="tekst"><b>' + esc(a.ip) + '</b> — ' + esc(a.bericht) + '</div><span class="tijd">' + geleden(a.op) + '</span></div>').join('') + '</div></div>' : '')
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Servers</h2><div class="rechts"><button class="knop klein" data-ga="servers">Beheren</button></div></div><div class="rijen">' + serverRijen + '</div></div>'
       + '<div class="raster twee" style="margin-bottom:14px">'
       + '<div class="kaart"><div class="kaart-kop"><h2>IP-adressen</h2><div class="rechts"><button class="knop klein" data-ga="hosts">Beheren</button></div></div><div class="rijen">' + hostRijen + '</div></div>'
       + '<div class="kaart"><div class="kaart-kop"><h2>Laatste gebeurtenissen</h2></div><div class="kaart-body">' + gebeurtenissen + '</div></div>'
@@ -721,6 +784,13 @@ function koppelOverzicht() {
     huidigeTab = 'hosts';
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b.dataset.tab === 'hosts'));
     laadHostDetail(hostDetail);
+  }));
+  beeld.querySelectorAll('[data-server]').forEach((el) => el.addEventListener('click', (e) => {
+    e.preventDefault();
+    serverDetail = Number(el.dataset.server);
+    huidigeTab = 'servers';
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b.dataset.tab === 'servers'));
+    laadHuidig();
   }));
   beeld.querySelectorAll('[data-ga]').forEach((el) => el.addEventListener('click', () => {
     huidigeTab = el.dataset.ga;
@@ -1094,6 +1164,7 @@ function bevestig(titel, tekst, ja) {
 // ── IP-adressen ───────────────────────────────────────────────────────────────
 let hostsCache = [];
 let hostDetail = null;
+let serverDetail = null;
 
 function hostStatus(st) {
   if (st === 'neer') return { klasse: 'neer', tekst: 'niet bereikbaar' };
@@ -1343,6 +1414,189 @@ function koppelTerug() {
   beeld.querySelectorAll('[data-terug]').forEach((b) => b.addEventListener('click', () => { hostDetail = null; laadHosts(); }));
 }
 
+// ── servers (hardware) ────────────────────────────────────────────────────────
+let serversCache = [];
+
+function serverStatus(st) {
+  if (st === 'fout') return { klasse: 'neer', tekst: 'fout' };
+  if (st === 'stil') return { klasse: 'wacht', tekst: 'stil' };
+  if (st === 'onbekend') return { klasse: 'wacht', tekst: 'wacht op meting' };
+  return { klasse: 'ok', tekst: 'online' };
+}
+function pctKlasse(p) {
+  if (p === null || p === undefined) return '';
+  return p >= 90 ? 'gevaar' : p >= 75 ? 'waarschuw' : '';
+}
+function meterRij(label, pct, extra = '') {
+  const p = pct === null || pct === undefined ? null : Math.round(Number(pct));
+  return '<div class="meter-rij"><span class="meter-label">' + esc(label) + '</span>'
+    + '<div class="meter ' + pctKlasse(p) + '"><i style="width:' + (p === null ? 0 : p) + '%"></i></div>'
+    + '<b>' + (p === null ? '—' : p + '%') + '</b>' + (extra ? '<span class="meter-extra">' + esc(extra) + '</span>' : '') + '</div>';
+}
+const gb = (n) => (n === null || n === undefined ? '—' : nlGetal(n) + ' GB');
+const mb = (n) => (n === null || n === undefined ? '—' : nlGetal(n) + ' MB');
+function uptimeTekst(s) {
+  if (!s) return '—';
+  const d = Math.floor(s / 86400), u = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return d + ' d ' + u + ' u';
+  if (u) return u + ' u ' + m + ' m';
+  return m + ' min';
+}
+function serverKaart(s) {
+  const st = serverStatus(s.status);
+  return '<a class="srv" data-server="' + s.id + '" href="#">'
+    + '<div class="srv-top"><span class="srv-naam">' + esc(s.naam) + '</span>'
+    + '<span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span>'
+    + (s.lokaal ? '<span class="chip">deze monitor</span>' : '') + '</div>'
+    + '<div class="srv-host">' + esc(s.host || 'geen hostnaam') + '</div>'
+    + '<div class="srv-meters">'
+    + meterRij('CPU', s.cpu_pct, s.kernen ? s.kernen + ' kernen' : '')
+    + meterRij('RAM', s.ram_pct, s.ram_totaal_mb ? mb(s.ram_totaal_mb) : '')
+    + meterRij('Schijf', s.disk_pct, s.schijven ? s.schijven + ' schijven' : '')
+    + meterRij('GPU', s.gpu_pct, s.gpus ? s.gpus + ' kaarten' : 'geen')
+    + '</div>'
+    + '<div class="srv-voet"><span>' + (s.temp_c !== null && s.temp_c !== undefined ? '🌡 ' + nlGetal(s.temp_c) + ' °C' : '') + '</span>'
+    + '<span class="srv-tijd">' + (s.laatste ? 'gemeten ' + geleden(s.laatste) : 'nog niet gemeten') + '</span></div>'
+    + '</a>';
+}
+
+async function laadServers() {
+  try {
+    const d = await api('/api/servers');
+    serversCache = d.servers || [];
+    const ok = serversCache.filter((s) => s.status === 'ok').length;
+    const hoog = serversCache.filter((s) => (s.cpu_pct || 0) >= 90 || (s.ram_pct || 0) >= 90 || (s.disk_pct || 0) >= 90).length;
+    zetTeller('tab-servers', serversCache.length, hoog > 0 || serversCache.some((s) => s.status === 'fout'));
+    beeld.innerHTML =
+      '<div class="kaarten-kop"><div><h2>Servers</h2><p class="hint">CPU, geheugen, schijven, GPU en temperatuur per server. De eigen monitor leest rechtstreeks; andere servers sturen hun cijfers via het agent-script.</p></div>'
+      + '<button class="knop primair" id="server-toevoegen">' + ico.plus + ' Server toevoegen</button></div>'
+      + '<div class="kpis" style="margin-bottom:16px">'
+      + '<div class="kpi"><div class="kpi-label">Servers</div><div class="kpi-waarde">' + serversCache.length + '</div><div class="kpi-sub">' + ok + ' online</div></div>'
+      + '<div class="kpi"><div class="kpi-label">Hoog gebruik</div><div class="kpi-waarde">' + hoog + '</div><div class="kpi-sub">≥ 90% op CPU, RAM of schijf</div></div>'
+      + '</div>'
+      + (serversCache.length ? '<div class="srv-grid">' + serversCache.map(serverKaart).join('') + '</div>'
+        : '<div class="kaart"><div class="kaart-body">' + leeg('Nog geen servers. Voeg de eerste toe.') + '</div></div>');
+    $('#server-toevoegen').addEventListener('click', toonServerForm);
+    document.querySelectorAll('[data-server]').forEach((a) => a.addEventListener('click', (e) => {
+      e.preventDefault();
+      serverDetail = Number(a.dataset.server);
+      laadHuidig();
+    }));
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+async function laadServerDetail(id) {
+  try {
+    const d = await api('/api/servers/' + id);
+    const s = d.server;
+    const data = s.data || {};
+    const st = serverStatus(s.status);
+    const cpu = data.cpu || {};
+    const ram = data.geheugen || {};
+    const schijven = Array.isArray(data.schijven) ? data.schijven : [];
+    const gpus = Array.isArray(data.gpu) ? data.gpu : [];
+    const net = data.netwerk || {};
+    const temps = Array.isArray(data.temperatuur) ? data.temperatuur : [];
+    const metingen = d.metingen || [];
+    const spark = metingen.slice(-40);
+    beeld.innerHTML =
+      '<button class="knop stil klein" data-terug>' + ico.terug + ' Terug</button>'
+      + '<div class="kaart" style="margin:12px 0 14px"><div class="kaart-body">'
+      + '<div class="srv-kop"><div class="merkblok"><h2>' + esc(s.naam) + ' <span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span></h2>'
+      + '<div class="srv-sub">' + esc(s.host || 'geen hostnaam') + (s.lokaal ? ' · deze monitor' : '') + ' · ' + (s.laatste ? 'gemeten ' + geleden(s.laatste) : 'nog niet gemeten') + '</div></div>'
+      + '<div class="acties">' + (s.lokaal ? '<button class="knop" id="srv-ververs">Verversen</button>' : '') + '<button class="knop stil" id="srv-token">Token</button></div></div>'
+      + (s.fout ? '<p class="fout-tekst" style="margin-top:10px">Laatste fout: ' + esc(s.fout) + '</p>' : '')
+      + '</div></div>'
+      + '<div class="meters">'
+      + '<div class="kaart"><div class="kaart-body"><div class="meter-titel">CPU</div>' + meterRij('Gebruik', s.cpu_pct) + '<div class="meter-detail">' + esc(cpu.model || '—') + '</div></div></div>'
+      + '<div class="kaart"><div class="kaart-body"><div class="meter-titel">Geheugen</div>' + meterRij('RAM', s.ram_pct, mb(ram.gebruikt_mb) + ' van ' + mb(ram.totaal_mb)) + meterRij('Swap', ram.swap_pct, mb(ram.swap_gebruikt_mb) + ' van ' + mb(ram.swap_totaal_mb)) + '</div></div>'
+      + '<div class="kaart"><div class="kaart-body"><div class="meter-titel">Schijf</div>' + (schijven.length ? schijven.slice(0, 3).map((x) => meterRij(x.mount, x.gebruikt_pct, gb(x.gebruikt_gb) + ' van ' + gb(x.totaal_gb))).join('') : '<div class="meter-detail">geen schijven gevonden</div>') + '</div></div>'
+      + '<div class="kaart"><div class="kaart-body"><div class="meter-titel">GPU</div>' + (gpus.length ? gpus.map((g) => meterRij(g.naam, g.gebruik_pct, g.vram_mb ? mb(g.vram_gebruikt_mb) + ' van ' + mb(g.vram_mb) : '')).join('') : '<div class="meter-detail">geen GPU gevonden</div>') + '</div></div>'
+      + '</div>'
+      + '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Details</h2></div><div class="kaart-body" style="padding:0">'
+      + '<table class="srv-tabel"><tbody>'
+      + '<tr><th>CPU</th><td>' + esc(cpu.model || '—') + '</td><td class="rechts">' + (cpu.kernen || '—') + ' kernen · ' + (cpu.mhz ? nlGetal(cpu.mhz) + ' MHz' : '—') + '</td></tr>'
+      + '<tr><th>Load</th><td colspan="2">' + (cpu.load_1 !== null && cpu.load_1 !== undefined ? nlGetal(cpu.load_1) + ' / ' + nlGetal(cpu.load_5) + ' / ' + nlGetal(cpu.load_15) + ' (1 / 5 / 15 min)' : '—') + '</td></tr>'
+      + '<tr><th>Geheugen</th><td>' + mb(ram.gebruikt_mb) + ' gebruikt</td><td class="rechts">' + mb(ram.totaal_mb) + ' totaal</td></tr>'
+      + '<tr><th>Swap</th><td>' + mb(ram.swap_gebruikt_mb) + ' gebruikt</td><td class="rechts">' + mb(ram.swap_totaal_mb) + ' totaal</td></tr>'
+      + '<tr><th>Systeem</th><td>' + esc(data.platform || '—') + ' ' + esc(data.release || '') + '</td><td class="rechts">' + esc(data.arch || '') + '</td></tr>'
+      + '<tr><th>Uptime</th><td colspan="2">' + uptimeTekst(data.uptime_s) + '</td></tr>'
+      + '<tr><th>Netwerk</th><td colspan="2">' + ((net.koppen || []).map((k) => esc(k.naam + ' ' + k.adres)).join(' · ') || '—') + '</td></tr>'
+      + '<tr><th>Verkeer</th><td colspan="2">' + (net.rx_gb !== undefined ? gb(net.rx_gb) + ' ontvangen · ' + gb(net.tx_gb) + ' verzonden sinds opstart' : '—') + '</td></tr>'
+      + (temps.length ? '<tr><th>Temperatuur</th><td colspan="2">' + temps.map((t) => esc(t.soort + ': ' + nlGetal(t.c) + ' °C')).join(' · ') + '</td></tr>' : '')
+      + '</tbody></table></div></div>'
+      + (schijven.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Schijven</h2></div><div class="kaart-body" style="padding:0">'
+        + '<table class="srv-tabel"><thead><tr><th>Mount</th><th>Apparaat</th><th>Gebruikt</th><th>Vrij</th><th>Totaal</th><th>%</th></tr></thead><tbody>'
+        + schijven.map((x) => '<tr><td><b>' + esc(x.mount) + '</b></td><td class="mono">' + esc(x.apparaat) + '</td><td>' + gb(x.gebruikt_gb) + '</td><td>' + gb(x.vrij_gb) + '</td><td>' + gb(x.totaal_gb) + '</td><td><span class="chip ' + (x.gebruikt_pct >= 90 ? 'rood' : x.gebruikt_pct >= 75 ? 'amber' : '') + '">' + nlGetal(x.gebruikt_pct) + '%</span></td></tr>').join('')
+        + '</tbody></table></div></div>' : '')
+      + (gpus.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>GPU</h2></div><div class="kaart-body" style="padding:0">'
+        + '<table class="srv-tabel"><thead><tr><th>Kaart</th><th>Geheugen</th><th>Gebruik</th><th>Temp</th><th>Stroom</th></tr></thead><tbody>'
+        + gpus.map((g) => '<tr><td><b>' + esc(g.naam) + '</b><div class="mono">' + esc(g.vendor || '') + '</div></td><td>' + (g.vram_mb ? mb(g.vram_gebruikt_mb) + ' / ' + mb(g.vram_mb) : '—') + '</td><td>' + (g.gebruik_pct !== null ? nlGetal(g.gebruik_pct) + '%' : '—') + '</td><td>' + (g.temp_c !== null ? nlGetal(g.temp_c) + ' °C' : '—') + '</td><td>' + (g.watt !== null ? nlGetal(g.watt) + ' W' : '—') + '</td></tr>').join('')
+        + '</tbody></table></div></div>' : '')
+      + '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Laatste metingen</h2><span class="chip">' + spark.length + '</span></div><div class="kaart-body">'
+      + (spark.length ? '<div class="grafiek">' + spark.map((m) => {
+        const h = Math.max(4, Math.min(40, Math.round((m.cpu_pct || 0) * 0.4)));
+        const k = pctKlasse(m.cpu_pct);
+        return '<i class="' + k + '" style="height:' + h + 'px" title="' + esc(datum(m.op) + ' · CPU ' + (m.cpu_pct ?? '—') + '%') + '"></i>';
+      }).join('') + '</div><p class="hint" style="margin-top:8px">CPU-gebruik per meting, laatste ' + spark.length + ' metingen.</p>' : leeg('Nog geen metingen.'))
+      + '</div></div>';
+    document.querySelector('[data-terug]').addEventListener('click', () => { serverDetail = null; laadHuidig(); });
+    const ververs = $('#srv-ververs');
+    if (ververs) ververs.addEventListener('click', async () => {
+      try { await api('/api/servers/' + id + '/verversen', { method: 'POST' }); toast('Server bijgewerkt'); laadServerDetail(id); }
+      catch (e) { toast(e.message, true); }
+    });
+    $('#srv-token').addEventListener('click', () => toonTokenModal(s, null));
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+function toonServerForm() {
+  const m = $('#modal');
+  $('#modal-inhoud').innerHTML = '<h3 style="margin-bottom:6px">Server toevoegen</h3>'
+    + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 16px">Een externe server meet zichzelf met het agent-script en stuurt de cijfers hierheen. Je krijgt een token dat je op die server instelt.</p>'
+    + '<form id="srvform"><label class="veld"><span>Naam</span><input name="naam" placeholder="bijv. proxmox-thuis" required></label>'
+    + '<label class="veld"><span>Hostnaam of IP (optioneel)</span><input name="host" placeholder="192.168.1.50"></label>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button type="button" class="knop" id="srv-annuleer">Annuleren</button><button type="submit" class="knop primair">Toevoegen</button></div></form>';
+  m.classList.add('aan');
+  const sluit = () => m.classList.remove('aan');
+  $('#srv-annuleer').addEventListener('click', sluit);
+  m.addEventListener('click', (e) => { if (e.target === m) sluit(); }, { once: true });
+  $('#srvform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      const r = await api('/api/servers', { method: 'POST', lichaam: { naam: f.get('naam'), host: f.get('host') } });
+      sluit();
+      toast('Server toegevoegd');
+      toonTokenModal(r.server, r.token);
+      laadServers();
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
+function toonTokenModal(server, token) {
+  const m = $('#modal');
+  const t = token || '••••••••';
+  const commando = 'BASE_URL=' + location.origin + ' TOKEN=' + t + ' node werdens-agent.js';
+  $('#modal-inhoud').innerHTML = '<h3 style="margin-bottom:6px">Agent-token voor ' + esc(server.naam) + '</h3>'
+    + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">Zet dit token in de omgeving van de agent op die server. Het token is alleen nu zichtbaar; later kun je het via de serverpagina vernieuwen.</p>'
+    + '<div class="tokenvak" id="tokenwaarde">' + esc(t) + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><button class="knop" id="token-kopieer">Token kopiëren</button><button class="knop" id="commando-kopieer">Commando kopiëren</button></div>'
+    + '<div class="tokenvak" style="font-size:11.5px">' + esc(commando) + '</div>'
+    + '<p class="hint">Download het agent-script uit de repo: <code>scripts/werdens-agent.js</code>. Zet daar <code>BASE_URL</code> en <code>TOKEN</code> in de omgeving en laat het via cron elke minuut draaien.</p>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="knop primair" id="token-sluit">Sluiten</button></div>';
+  m.classList.add('aan');
+  const sluit = () => m.classList.remove('aan');
+  $('#token-sluit').addEventListener('click', sluit);
+  m.addEventListener('click', (e) => { if (e.target === m) sluit(); }, { once: true });
+  $('#token-kopieer').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(t); toast('Token gekopieerd'); } catch { toast('Kopiëren lukte niet', true); }
+  });
+  $('#commando-kopieer').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(commando); toast('Commando gekopieerd'); } catch { toast('Kopiëren lukte niet', true); }
+  });
+}
+
 // ── instellingen ─────────────────────────────────────────────────────────────
 async function laadInstellingen() {
   try {
@@ -1356,6 +1610,15 @@ async function laadInstellingen() {
       + '<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;overflow-x:auto">'
       + esc('GET  /api/agent/tickets                 open tickets\nGET  /api/agent/tickets/:id             ticket + context\nPOST /api/agent/tickets/:id/berichten     bevinding terug\nPATCH /api/agent/tickets/:id            status zetten\nGET  /api/agent/sites                   site-status\nPOST /api/agent/scan { "ip": "..." }    host aftasten') + '</div>'
       + '<p class="hint">Voorbeeld: <code>' + esc(curl) + '</code></p>'
+      + '</div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Slack-meldingen</h2><span class="chip ' + (d.slack_aan && d.slack_webhook ? 'groen' : '') + '">' + (d.slack_aan && d.slack_webhook ? 'aan' : 'uit') + '</span></div><div class="kaart-body">'
+      + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">Storingen worden als bericht naar een Slack-kanaal gestuurd. Maak in Slack een <b>Incoming Webhook</b> (App-directory → Incoming Webhooks → Add to Slack), kies het kanaal en plak de URL hier. Eén storing wordt één keer gemeld; blijft hij open, dan niet elke meetronde opnieuw.</p>'
+      + '<form id="slackform"><label class="veld"><span>Webhook-URL</span><input name="slack_webhook" value="' + esc(d.slack_webhook || '') + '" placeholder="https://hooks.slack.com/services/..." autocomplete="off" spellcheck="false"></label>'
+      + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 14px"><label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_aan"' + (d.slack_aan ? ' checked' : '') + '> Meldingen versturen</label>'
+      + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_herstel"' + (d.slack_herstel ? ' checked' : '') + '> Ook herstel melden</label></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Opslaan</button><button class="knop" type="button" id="slack-test">Testbericht</button></div></form>'
+      + (d.slack_laatst ? '<p class="hint">Laatst verzonden: ' + esc(geleden(d.slack_laatst)) + '</p>' : '')
+      + (d.slack_laatst_fout ? '<p class="hint" style="color:var(--red)">Laatste fout: ' + esc(d.slack_laatst_fout) + '</p>' : '')
       + '</div></div>'
       + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Beheerder</h2></div><div class="kaart-body">'
       + '<form id="wwform" class="form-rij">'
@@ -1377,6 +1640,25 @@ async function laadInstellingen() {
     $('#nieuw-token').addEventListener('click', async () => {
       try { await api('/api/instellingen', { method: 'PATCH', lichaam: { agent_token: 'nieuw' } }); toast('Nieuw token aangemaakt'); laadInstellingen(); }
       catch (e) { toast(e.message, true); }
+    });
+    $('#slackform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        await api('/api/instellingen', { method: 'PATCH', lichaam: {
+          slack_webhook: f.get('slack_webhook') || '',
+          slack_aan: !!f.get('slack_aan'),
+          slack_herstel: !!f.get('slack_herstel'),
+        } });
+        toast('Slack-instellingen opgeslagen'); laadInstellingen();
+      } catch (err) { toast(err.message, true); }
+    });
+    $('#slack-test').addEventListener('click', async () => {
+      const knop = $('#slack-test');
+      knop.disabled = true; knop.textContent = 'Versturen…';
+      try { await api('/api/slack/test', { method: 'POST' }); toast('Testbericht verstuurd'); }
+      catch (err) { toast(err.message, true); }
+      finally { knop.disabled = false; knop.textContent = 'Testbericht'; }
     });
     $('#wwform').addEventListener('submit', async (e) => {
       e.preventDefault();

@@ -8,12 +8,16 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const net = require('node:net');
+const os = require('node:os');
 const sqlite3 = require('node:sqlite');
 const { URL } = require('node:url');
 const { controleerSite, haalStats, scanHost } = require('./lib/checks');
 const { haalProjecten } = require('./lib/github');
+const slack = require('./lib/slack');
+const hardware = require('./lib/hardware');
 
 const POORT = Number(process.env.PORT || 8080);
+const BASIS = process.env.BASE_URL || ('http://localhost:' + POORT);
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'monitor.db');
 const DATA_MAP = path.dirname(DB_PATH);
 const PUBLIC = path.join(__dirname, 'public');
@@ -64,6 +68,18 @@ CREATE TABLE IF NOT EXISTS onderhoud(
 CREATE TABLE IF NOT EXISTS gebeurtenissen(
   id INTEGER PRIMARY KEY AUTOINCREMENT, op TEXT NOT NULL, soort TEXT NOT NULL,
   ip TEXT NOT NULL DEFAULT '', tekst TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS slack_verzonden(
+  ip TEXT NOT NULL DEFAULT '', soort TEXT NOT NULL, op TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 1,
+  fout TEXT NOT NULL DEFAULT '', PRIMARY KEY(ip, soort));
+CREATE TABLE IF NOT EXISTS servers(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, naam TEXT NOT NULL, host TEXT NOT NULL DEFAULT '',
+  token TEXT NOT NULL, lokaal INTEGER NOT NULL DEFAULT 0, actief INTEGER NOT NULL DEFAULT 1,
+  laatste TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '', fout TEXT NOT NULL DEFAULT '',
+  aangemaakt TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS server_metingen(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER NOT NULL, op TEXT NOT NULL,
+  cpu_pct REAL, ram_pct REAL, disk_pct REAL, gpu_pct REAL, temp_c REAL, data TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_servermetingen ON server_metingen(server_id, op DESC);
 `);
 
 // Kolommen die later zijn bijgekomen, netjes toevoegen aan een bestaande database.
@@ -300,17 +316,47 @@ const parseJson = (waarde, standaard) => {
   try { const u = JSON.parse(waarde); return u === null || u === undefined ? standaard : u; } catch { return standaard; }
 };
 
+// Slack-meldingen: één inkomende webhook, ingesteld in het dashboard. Een storing
+// wordt één keer gemeld; blijft hij open, dan niet elke meetronde opnieuw.
+const SLACK_COOLDOWN_MS = 20 * 60 * 1000;
+function slackIngesteld() {
+  return instelling('slack_aan') === '1' && !!instelling('slack_webhook');
+}
+function stuurSlack(alert) {
+  if (!slackIngesteld()) return;
+  const host = db.prepare('SELECT naam, hostnaam FROM hosts WHERE ip=?').get(alert.ip);
+  const naam = (host && (host.naam || host.hostnaam)) || '';
+  const soort = alert.soort === 'host online' ? 'herstel' : alert.soort;
+  if (soort === 'herstel' && instelling('slack_herstel', '1') !== '1') return;
+  const vorige = db.prepare('SELECT op, ok FROM slack_verzonden WHERE ip=? AND soort=?').get(alert.ip, soort);
+  if (vorige && vorige.ok && soort !== 'herstel' && Date.now() - Date.parse(vorige.op) < SLACK_COOLDOWN_MS) return;
+  const bewaar = (ok, fout) => db.prepare(`INSERT INTO slack_verzonden(ip,soort,op,ok,fout) VALUES(?,?,?,?,?)
+    ON CONFLICT(ip,soort) DO UPDATE SET op=excluded.op, ok=excluded.ok, fout=excluded.fout`)
+    .run(alert.ip, soort, nu(), ok ? 1 : 0, String(fout || '').slice(0, 300));
+  bewaar(true, '');
+  slack.meldAlert(instelling('slack_webhook'), { ...alert, soort, naam }, { basis: BASIS })
+    .then((r) => {
+      bewaar(r.ok, r.fout);
+      if (r.ok) zetInstelling('slack_laatst', nu());
+      else zetInstelling('slack_laatst_fout', nu() + ' — ' + r.fout);
+    })
+    .catch((e) => bewaar(false, e.message));
+}
+
 function meld(ip, soort, bericht) {
   const bestaat = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND bericht=? AND opgelost=''").get(ip, soort, bericht);
   if (bestaat) return;
-  db.prepare('INSERT INTO alerts(ip,soort,bericht,op) VALUES(?,?,?,?)').run(ip, soort, bericht, nu());
+  const r = db.prepare('INSERT INTO alerts(ip,soort,bericht,op) VALUES(?,?,?,?)').run(ip, soort, bericht, nu());
   db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(nu(), 'alert', ip, bericht);
+  const rij = db.prepare('SELECT * FROM alerts WHERE id=?').get(r.lastInsertRowid);
+  if (rij) stuurSlack(rij);
 }
 function losOp(ip, soort) {
-  const open = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND opgelost=''").all(ip, soort);
+  const open = db.prepare("SELECT * FROM alerts WHERE ip=? AND soort=? AND opgelost=''").all(ip, soort);
   for (const a of open) {
     db.prepare('UPDATE alerts SET opgelost=? WHERE id=?').run(nu(), a.id);
     db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)').run(nu(), 'opgelost', ip, soort + ' opgelost');
+    stuurSlack({ ...a, soort: 'herstel', bericht: 'Opgelost: ' + a.bericht });
   }
 }
 
@@ -399,6 +445,110 @@ const hosts = {
     return uit;
   },
 };
+
+// ── servers (hardware) ───────────────────────────────────────────────────────
+// Een server stuurt zijn eigen cijfers: de lokale server leest /proc, /sys en
+// df rechtstreeks; een andere server draait het agent-script en post naar
+// /api/agent/hardware met zijn eigen token. Zo hoeft er geen SSH-sleutel in de
+// monitor te staan en werkt het ook door een firewall heen.
+const servers = {
+  lijst() { return db.prepare('SELECT * FROM servers ORDER BY lokaal DESC, naam').all(); },
+  een(id) { return db.prepare('SELECT * FROM servers WHERE id=?').get(Number(id)); },
+  opToken(token) {
+    if (!token) return null;
+    return db.prepare('SELECT * FROM servers WHERE token=?').get(String(token));
+  },
+  geschiedenis(id, aantal = 80) {
+    return db.prepare('SELECT * FROM server_metingen WHERE server_id=? ORDER BY id DESC LIMIT ?').all(Number(id), aantal).reverse();
+  },
+  status(s) {
+    if (!s) return 'onbekend';
+    if (s.fout) return 'fout';
+    if (!s.laatste) return 'onbekend';
+    const minuten = (Date.now() - new Date(s.laatste).getTime()) / 60000;
+    if (minuten > 10) return 'stil';
+    return 'ok';
+  },
+  samenvatting(data) {
+    const d = data || {};
+    const schijven = Array.isArray(d.schijven) ? d.schijven : [];
+    const gpus = Array.isArray(d.gpu) ? d.gpu : [];
+    const temps = Array.isArray(d.temperatuur) ? d.temperatuur : [];
+    const max = (lijst, veld) => {
+      let m = null;
+      for (const x of lijst) {
+        const v = x[veld];
+        if (typeof v === 'number' && (m === null || v > m)) m = v;
+      }
+      return m;
+    };
+    return {
+      cpu_pct: d.cpu ? d.cpu.gebruik_pct : null,
+      ram_pct: d.geheugen ? d.geheugen.gebruikt_pct : null,
+      disk_pct: schijven.length ? max(schijven, 'gebruikt_pct') : null,
+      gpu_pct: gpus.length ? max(gpus, 'gebruik_pct') : null,
+      temp_c: temps.length ? max(temps, 'c') : (gpus.length ? max(gpus, 'temp_c') : null),
+      kernen: d.cpu ? d.cpu.kernen : null,
+      ram_totaal_mb: d.geheugen ? d.geheugen.totaal_mb : null,
+      schijven: schijven.length,
+      gpus: gpus.length,
+    };
+  },
+  beeld(s, uitgebreid = false) {
+    const data = parseJson(s.data, null);
+    const sam = servers.samenvatting(data);
+    const uit = {
+      id: s.id, naam: s.naam, host: s.host || '', lokaal: !!s.lokaal, actief: !!s.actief,
+      laatste: s.laatste || '', fout: s.fout || '', status: servers.status(s),
+      data, ...sam,
+    };
+    if (uitgebreid) uit.geschiedenis = servers.geschiedenis(s.id);
+    return uit;
+  },
+  bewaar(id, data, fout = '') {
+    const s = servers.een(id);
+    if (!s) throw new Error('Server bestaat niet');
+    const op = (data && data.op) || nu();
+    db.prepare('UPDATE servers SET laatste=?, data=?, fout=? WHERE id=?')
+      .run(op, data ? JSON.stringify(data) : s.data, String(fout || ''), id);
+    if (data) {
+      const sam = servers.samenvatting(data);
+      db.prepare(`INSERT INTO server_metingen(server_id,op,cpu_pct,ram_pct,disk_pct,gpu_pct,temp_c,data)
+        VALUES(?,?,?,?,?,?,?,?)`).run(id, op, sam.cpu_pct, sam.ram_pct, sam.disk_pct, sam.gpu_pct, sam.temp_c, JSON.stringify(sam));
+      // Houd de historie compact: per server de laatste 2880 metingen (24 uur bij 30 s).
+      db.prepare(`DELETE FROM server_metingen WHERE server_id=? AND id NOT IN
+        (SELECT id FROM server_metingen WHERE server_id=? ORDER BY id DESC LIMIT 2880)`).run(id, id);
+    }
+  },
+  async meetLokaal(id) {
+    const s = servers.een(id);
+    if (!s) return null;
+    try {
+      const data = await hardware.verzamel();
+      servers.bewaar(id, data, '');
+      return servers.beeld(servers.een(id), true);
+    } catch (e) {
+      servers.bewaar(id, null, e.message);
+      return servers.beeld(servers.een(id), true);
+    }
+  },
+};
+
+// De eigen server bestaat altijd: anders zou het dashboard zichzelf niet zien.
+function zorgLokaleServer() {
+  const bestaand = db.prepare('SELECT id FROM servers WHERE lokaal=1').get();
+  if (bestaand) return bestaand.id;
+  const naam = tekst(process.env.SERVER_NAAM, 80) || os.hostname();
+  const r = db.prepare('INSERT INTO servers(naam,host,token,lokaal,actief,aangemaakt) VALUES(?,?,?,?,?,?)')
+    .run(naam, os.hostname(), crypto.randomBytes(24).toString('hex'), 1, 1, nu());
+  return r.lastInsertRowid;
+}
+
+async function serverRonde() {
+  for (const s of servers.lijst()) {
+    if (s.lokaal && s.actief) await servers.meetLokaal(s.id);
+  }
+}
 
 function hostVanBody(body, bestaand = null) {
   const ip = tekst(body.ip, 60);
@@ -534,9 +684,14 @@ function overzicht() {
   const hostRijen = hosts.lijst();
   const hostBeelden = hostRijen.map((h) => hosts.beeld(h));
   const alertsOpen = hosts.openAlerts();
+  const serverBeelden = servers.lijst().map((x) => servers.beeld(x));
   const weekGrens = Date.now() - 7 * 86400e3;
   return {
+    servers: serverBeelden,
     samenvatting: {
+      servers: serverBeelden.length,
+      servers_ok: serverBeelden.filter((s) => s.status === 'ok').length,
+      servers_vol: serverBeelden.filter((s) => (s.disk_pct || 0) >= 90 || (s.cpu_pct || 0) >= 90 || (s.ram_pct || 0) >= 90).length,
       sites: siteLijst.length, sites_ok: siteLijst.length - neer.length, sites_neer: neer.length,
       hosts: hostRijen.length,
       hosts_ok: hostBeelden.filter((h) => h.status === 'ok').length,
@@ -576,6 +731,19 @@ async function verwerk(req, res) {
     const token = sessies.maak();
     const koek = `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSIE_UREN * 3600}`;
     return json(res, 200, { ok: true, naam: instelling('admin_naam', 'tom') }, { 'set-cookie': koek });
+  }
+
+  // Hardware-agent: elke server heeft zijn eigen token, geen beheerderssessie.
+  if (pad === '/api/agent/hardware' && methode === 'POST') {
+    const token = String(req.headers['x-agent-token'] || '').trim();
+    const server = servers.opToken(token);
+    if (!server) return fout(res, 401, 'Onbekend of ongeldig server-token');
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    const data = body.data && typeof body.data === 'object' ? body.data : body;
+    if (!data || !data.cpu || !data.geheugen) return fout(res, 400, 'Geen bruikbare meetgegevens');
+    servers.bewaar(server.id, data, '');
+    return json(res, 200, { ok: true, server: servers.beeld(servers.een(server.id)) });
   }
 
   // agent-API: alleen tickets, met een eigen token, geen beheerderssessie nodig
@@ -793,6 +961,61 @@ async function verwerk(req, res) {
       return json(res, 200, { ok: true });
     }
   }
+  // ── servers (hardware) ─────────────────────────────────────────────────────
+  if (pad === '/api/servers' && methode === 'GET') {
+    return json(res, 200, { servers: servers.lijst().map((s) => servers.beeld(s)) });
+  }
+  if (pad === '/api/servers' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    const naam = tekst(body.naam, 80);
+    if (!naam) return fout(res, 400, 'Naam is verplicht');
+    const host = tekst(body.host, 120);
+    const lokaal = body.lokaal ? 1 : 0;
+    const token = crypto.randomBytes(24).toString('hex');
+    const r = db.prepare('INSERT INTO servers(naam,host,token,lokaal,actief,aangemaakt) VALUES(?,?,?,?,?,?)')
+      .run(naam, host, token, lokaal, 1, nu());
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+      .run(nu(), 'server toegevoegd', host, 'Server ' + naam + ' toegevoegd');
+    if (lokaal) await servers.meetLokaal(r.lastInsertRowid);
+    return json(res, 201, { server: servers.beeld(servers.een(r.lastInsertRowid), true), token });
+  }
+  if (delen[1] === 'servers' && delen[2]) {
+    const server = servers.een(delen[2]);
+    if (!server) return fout(res, 404, 'Deze server staat niet in de lijst');
+    if (methode === 'GET' && !delen[3]) {
+      return json(res, 200, {
+        server: servers.beeld(server, true),
+        metingen: servers.geschiedenis(server.id, 120),
+        sites: db.prepare('SELECT naam, url FROM sites WHERE ip=?').all(server.host || ''),
+      });
+    }
+    if (methode === 'PATCH' && !delen[3]) {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      db.prepare('UPDATE servers SET naam=?, host=?, actief=? WHERE id=?')
+        .run(tekst(body.naam, 80) || server.naam, tekst(body.host, 120) || server.host,
+          body.actief === undefined ? server.actief : (body.actief ? 1 : 0), server.id);
+      return json(res, 200, { server: servers.beeld(servers.een(server.id), true) });
+    }
+    if (methode === 'DELETE' && !delen[3]) {
+      if (server.lokaal) return fout(res, 400, 'De eigen server kan niet verwijderd worden');
+      db.prepare('DELETE FROM server_metingen WHERE server_id=?').run(server.id);
+      db.prepare('DELETE FROM servers WHERE id=?').run(server.id);
+      return json(res, 200, { ok: true });
+    }
+    if (methode === 'POST' && delen[3] === 'token') {
+      const nieuw = crypto.randomBytes(24).toString('hex');
+      db.prepare('UPDATE servers SET token=? WHERE id=?').run(nieuw, server.id);
+      return json(res, 200, { ok: true, token: nieuw });
+    }
+    if (methode === 'POST' && delen[3] === 'verversen') {
+      if (!server.lokaal) return fout(res, 400, 'Een externe server wordt door zijn eigen agent gemeten');
+      const uit = await servers.meetLokaal(server.id);
+      return json(res, 200, { server: uit });
+    }
+  }
+
   if (pad === '/api/alerts' && methode === 'GET') {
     return json(res, 200, { alerts: hosts.openAlerts(), alle: db.prepare('SELECT * FROM alerts ORDER BY id DESC LIMIT 100').all() });
   }
@@ -832,6 +1055,11 @@ async function verwerk(req, res) {
       projecten_op: instelling('projecten_op'),
       projecten_fout: instelling('projecten_fout'),
       github_token: process.env.GITHUB_TOKEN ? 'ingesteld via omgeving' : 'niet ingesteld',
+      slack_webhook: instelling('slack_webhook'),
+      slack_aan: instelling('slack_aan') === '1',
+      slack_herstel: instelling('slack_herstel', '1') === '1',
+      slack_laatst: instelling('slack_laatst'),
+      slack_laatst_fout: instelling('slack_laatst_fout'),
       versie: require('./package.json').version,
     });
   }
@@ -849,7 +1077,41 @@ async function verwerk(req, res) {
       zetInstelling('agent_token', crypto.randomBytes(24).toString('hex'));
     }
     if (body.admin_naam) zetInstelling('admin_naam', tekst(body.admin_naam, 40));
-    return json(res, 200, { ok: true, agent_token: instelling('agent_token') });
+    if (body.slack_webhook !== undefined) {
+      const invoer = tekst(body.slack_webhook, 400);
+      if (invoer) {
+        try { zetInstelling('slack_webhook', slack.controleerWebhook(invoer)); }
+        catch (e) { return fout(res, 400, e.message); }
+        zetInstelling('slack_laatst_fout', '');
+      } else {
+        zetInstelling('slack_webhook', '');
+      }
+    }
+    if (body.slack_aan !== undefined) zetInstelling('slack_aan', body.slack_aan ? '1' : '0');
+    if (body.slack_herstel !== undefined) zetInstelling('slack_herstel', body.slack_herstel ? '1' : '0');
+    return json(res, 200, {
+      ok: true, agent_token: instelling('agent_token'),
+      slack_webhook: instelling('slack_webhook'), slack_aan: instelling('slack_aan') === '1',
+      slack_herstel: instelling('slack_herstel', '1') === '1',
+    });
+  }
+
+  // Testbericht: laat meteen zien of de webhook werkt, zonder te wachten op een
+  // echte storing. Verstuurt niets als er geen webhook is ingesteld.
+  if (pad === '/api/slack/test' && methode === 'POST') {
+    const webhook = instelling('slack_webhook');
+    if (!webhook) return fout(res, 400, 'Vul eerst een Slack-webhook in');
+    const uit = await slack.meldAlert(webhook, {
+      soort: 'test', bericht: 'Testmelding vanuit Werdens Monitor — de koppeling werkt.',
+      ip: '127.0.0.1', op: nu(),
+    }, { basis: BASIS });
+    if (!uit.ok) {
+      zetInstelling('slack_laatst_fout', nu() + ' — ' + uit.fout);
+      return fout(res, 502, uit.fout);
+    }
+    zetInstelling('slack_laatst', nu());
+    zetInstelling('slack_laatst_fout', '');
+    return json(res, 200, { ok: true, verzonden: nu() });
   }
 
   if (pad.startsWith('/api/')) return fout(res, 404, 'Onbekende route');
@@ -952,8 +1214,11 @@ function seed() {
 
 if (require.main === module) {
   seed();
+  zorgLokaleServer();
   server.listen(POORT, () => console.log('Werdens Monitor luistert op poort ' + POORT));
   setTimeout(() => meetRonde().catch(() => {}), 1500);
+  setTimeout(() => serverRonde().catch(() => {}), 2500);
+  setInterval(() => serverRonde().catch(() => {}), 30e3);
   setTimeout(() => { if (instelling('agent_token')) verversProjecten(); }, 5000);
   setInterval(() => meetRonde().catch(() => {}), 30e3);
   setTimeout(() => hostRonde().catch(() => {}), 3500);
@@ -962,4 +1227,4 @@ if (require.main === module) {
   setInterval(() => db.prepare('DELETE FROM sessies WHERE verloopt < ?').run(nu()), 3600e3);
 }
 
-module.exports = { server, db, app: { overzicht, meetSite, siteBeeld, ticketVanBody, siteVanBody }, tickets, sites, projecten, sessies, wachtwoordAfpruk: wachtwoordAfdruk };
+module.exports = { server, db, app: { overzicht, meetSite, siteBeeld, ticketVanBody, siteVanBody }, tickets, sites, projecten, sessies, meld, wachtwoordAfpruk: wachtwoordAfdruk };
