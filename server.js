@@ -18,6 +18,7 @@ const update = require('./lib/update');
 const slack = require('./lib/slack');
 const hardware = require('./lib/hardware');
 const netwerk = require('./lib/netwerk');
+const libApparaten = require('./lib/apparaten');
 
 // Laatste netwerkscan in het geheugen: het dashboard hoeft hem niet te bewaren,
 // hij is toch maar een momentopname. `netwerkGevonden` onthoudt de namen zodat
@@ -89,6 +90,16 @@ CREATE TABLE IF NOT EXISTS server_metingen(
   id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER NOT NULL, op TEXT NOT NULL,
   cpu_pct REAL, ram_pct REAL, disk_pct REAL, gpu_pct REAL, temp_c REAL, data TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_servermetingen ON server_metingen(server_id, op DESC);
+CREATE TABLE IF NOT EXISTS apparaten(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, naam TEXT NOT NULL, soort TEXT NOT NULL DEFAULT 'generiek',
+  url TEXT NOT NULL DEFAULT '', gebruiker TEXT NOT NULL DEFAULT '', geheim TEXT NOT NULL DEFAULT '',
+  actief INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'onbekend',
+  laatste TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '', fout TEXT NOT NULL DEFAULT '',
+  aangemaakt TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS apparaat_metingen(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, apparaat_id INTEGER NOT NULL, op TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'onbekend', data TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_apparaatmetingen ON apparaat_metingen(apparaat_id, op DESC);
 `);
 
 // Kolommen die later zijn bijgekomen, netjes toevoegen aan een bestaande database.
@@ -543,6 +554,72 @@ const servers = {
     } catch (e) {
       servers.bewaar(id, null, e.message);
       return servers.beeld(servers.een(id), true);
+    }
+  },
+};
+
+// ── apparaten (UniFi, TrueNAS, generiek HTTP) ────────────────────────────────
+// Geen agent op het kastje zelf: de monitor praat met de API van het apparaat.
+// Zelfde vorm als servers — status, laatste meting, data als JSON — zodat de
+// UI en de geschiedenis hetzelfde werken.
+const apparaten = {
+  lijst() { return db.prepare('SELECT * FROM apparaten ORDER BY naam').all(); },
+  een(id) { return db.prepare('SELECT * FROM apparaten WHERE id=?').get(Number(id)); },
+  geschiedenis(id, aantal = 60) {
+    return db.prepare('SELECT * FROM apparaat_metingen WHERE apparaat_id=? ORDER BY id DESC LIMIT ?')
+      .all(Number(id), aantal).reverse();
+  },
+  // Alerts hebben een ip-kolom; voor een apparaat gebruiken we een eigen sleutel
+  // zodat host- en apparaatmeldingen elkaar niet in de weg zitten.
+  sleutel(a) { return 'apparaat:' + (a.naam || a.id); },
+  status(a) {
+    if (!a) return 'onbekend';
+    if (a.fout) return 'fout';
+    if (!a.laatste) return 'onbekend';
+    const minuten = (Date.now() - new Date(a.laatste).getTime()) / 60000;
+    if (minuten > 15) return 'stil';
+    return 'ok';
+  },
+  beeld(a, uitgebreid = false) {
+    const uit = {
+      id: a.id, naam: a.naam, soort: a.soort, url: a.url, gebruiker: a.gebruiker || '',
+      heeft_geheim: !!a.geheim, actief: !!a.actief, status: apparaten.status(a),
+      laatste: a.laatste || '', fout: a.fout || '', data: parseJson(a.data, null),
+      aangemaakt: a.aangemaakt || '',
+    };
+    if (uitgebreid) uit.geschiedenis = apparaten.geschiedenis(a.id);
+    return uit;
+  },
+  bewaar(id, status, data, fout = '') {
+    const a = apparaten.een(id);
+    if (!a) throw new Error('Apparaat bestaat niet');
+    const op = nu();
+    db.prepare('UPDATE apparaten SET laatste=?, status=?, data=?, fout=? WHERE id=?')
+      .run(op, String(status || 'onbekend'), data ? JSON.stringify(data) : a.data, String(fout || ''), id);
+    db.prepare('INSERT INTO apparaat_metingen(apparaat_id,op,status,data) VALUES(?,?,?,?)')
+      .run(id, op, String(status || 'onbekend'), JSON.stringify(data || {}));
+    db.prepare(`DELETE FROM apparaat_metingen WHERE apparaat_id=? AND id NOT IN
+      (SELECT id FROM apparaat_metingen WHERE apparaat_id=? ORDER BY id DESC LIMIT 2880)`).run(id, id);
+  },
+  async meet(id) {
+    const a = apparaten.een(id);
+    if (!a) return null;
+    const uit = await libApparaten.meten(a);
+    const was = a.fout ? 'fout' : (a.laatste ? 'ok' : 'onbekend');
+    apparaten.bewaar(id, uit.status, uit.data, uit.fout);
+    const sleutel = apparaten.sleutel(a);
+    if (uit.status === 'fout' && was === 'ok') {
+      meld(sleutel, 'apparaat neer', a.naam + ' is niet bereikbaar: ' + (uit.fout || 'onbekende fout'));
+    }
+    if (uit.status === 'ok' && was === 'fout') {
+      meld(sleutel, 'apparaat online', a.naam + ' is weer bereikbaar');
+      losOp(sleutel, 'apparaat neer');
+    }
+    return apparaten.beeld(apparaten.een(id), true);
+  },
+  async ronde() {
+    for (const a of apparaten.lijst()) {
+      if (a.actief) await apparaten.meet(a.id).catch(() => {});
     }
   },
 };
@@ -1029,6 +1106,64 @@ async function verwerk(req, res) {
     }
   }
 
+  // ── apparaten (homelab: UniFi, TrueNAS, generiek) ───────────────────────────
+  if (pad === '/api/apparaten' && methode === 'GET') {
+    return json(res, 200, { apparaten: apparaten.lijst().map((a) => apparaten.beeld(a)), soorten: libApparaten.SOORTEN });
+  }
+  if (pad === '/api/apparaten' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    try {
+      const naam = tekst(body.naam, 80);
+      const soort = tekst(body.soort, 20).toLowerCase();
+      const url = tekst(body.url, 300);
+      if (!naam) return fout(res, 400, 'Naam is verplicht');
+      if (!libApparaten.SOORTEN[soort]) return fout(res, 400, 'Onbekend soort apparaat');
+      if (!/^https?:\/\//i.test(url)) return fout(res, 400, 'URL moet met http:// of https:// beginnen');
+      const r = db.prepare('INSERT INTO apparaten(naam,soort,url,gebruiker,geheim,actief,aangemaakt) VALUES(?,?,?,?,?,?,?)')
+        .run(naam, soort, url, tekst(body.gebruiker, 120), tekst(body.geheim, 300), body.actief === false ? 0 : 1, nu());
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'apparaat toegevoegd', '', 'Apparaat ' + naam + ' (' + soort + ') toegevoegd');
+      const nieuw = apparaten.een(r.lastInsertRowid);
+      // Meteen één meting, zodat je niet op de volgende ronde hoeft te wachten.
+      const uit = await apparaten.meet(nieuw.id).catch(() => null);
+      return json(res, 201, { apparaat: uit || apparaten.beeld(nieuw) });
+    } catch (e) { return fout(res, 400, e.message); }
+  }
+  if (delen[1] === 'apparaten' && delen[2]) {
+    const apparaat = apparaten.een(delen[2]);
+    if (!apparaat) return fout(res, 404, 'Dit apparaat staat niet in de lijst');
+    if (methode === 'GET' && !delen[3]) {
+      return json(res, 200, { apparaat: apparaten.beeld(apparaat, true) });
+    }
+    if (methode === 'PATCH' && !delen[3]) {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      const soort = body.soort === undefined ? apparaat.soort : tekst(body.soort, 20).toLowerCase();
+      if (!libApparaten.SOORTEN[soort]) return fout(res, 400, 'Onbekend soort apparaat');
+      const url = body.url === undefined ? apparaat.url : tekst(body.url, 300);
+      if (!/^https?:\/\//i.test(url)) return fout(res, 400, 'URL moet met http:// of https:// beginnen');
+      // Een leeg geheim betekent: het bestaande wachtwoord/key laten staan.
+      const geheim = body.geheim === undefined || body.geheim === '' ? apparaat.geheim : tekst(body.geheim, 300);
+      db.prepare('UPDATE apparaten SET naam=?, soort=?, url=?, gebruiker=?, geheim=?, actief=? WHERE id=?')
+        .run(tekst(body.naam, 80) || apparaat.naam, soort, url,
+          body.gebruiker === undefined ? apparaat.gebruiker : tekst(body.gebruiker, 120), geheim,
+          body.actief === undefined ? apparaat.actief : (body.actief ? 1 : 0), apparaat.id);
+      return json(res, 200, { apparaat: apparaten.beeld(apparaten.een(apparaat.id)) });
+    }
+    if (methode === 'DELETE' && !delen[3]) {
+      db.prepare('DELETE FROM apparaat_metingen WHERE apparaat_id=?').run(apparaat.id);
+      db.prepare('DELETE FROM apparaten WHERE id=?').run(apparaat.id);
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'apparaat verwijderd', '', 'Apparaat ' + apparaat.naam + ' verwijderd');
+      return json(res, 200, { ok: true });
+    }
+    if (methode === 'POST' && delen[3] === 'verversen') {
+      const uit = await apparaten.meet(apparaat.id);
+      return json(res, 200, { apparaat: uit });
+    }
+  }
+
   if (pad === '/api/alerts' && methode === 'GET') {
     return json(res, 200, { alerts: hosts.openAlerts(), alle: db.prepare('SELECT * FROM alerts ORDER BY id DESC LIMIT 100').all() });
   }
@@ -1330,6 +1465,8 @@ if (require.main === module) {
   setTimeout(() => meetRonde().catch(() => {}), 1500);
   setTimeout(() => serverRonde().catch(() => {}), 2500);
   setInterval(() => serverRonde().catch(() => {}), 30e3);
+  setTimeout(() => apparaten.ronde().catch(() => {}), 4000);
+  setInterval(() => apparaten.ronde().catch(() => {}), 60e3);
   setTimeout(() => { if (instelling('agent_token')) verversProjecten(); }, 5000);
   setInterval(() => meetRonde().catch(() => {}), 30e3);
   setTimeout(() => hostRonde().catch(() => {}), 3500);
@@ -1338,4 +1475,4 @@ if (require.main === module) {
   setInterval(() => db.prepare('DELETE FROM sessies WHERE verloopt < ?').run(nu()), 3600e3);
 }
 
-module.exports = { server, db, app: { overzicht, meetSite, siteBeeld, ticketVanBody, siteVanBody }, tickets, sites, projecten, sessies, meld, wachtwoordAfpruk: wachtwoordAfdruk };
+module.exports = { server, db, app: { overzicht, meetSite, siteBeeld, ticketVanBody, siteVanBody }, tickets, sites, projecten, sessies, meld, apparaten, wachtwoordAfpruk: wachtwoordAfdruk };

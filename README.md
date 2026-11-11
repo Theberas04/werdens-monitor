@@ -34,6 +34,11 @@ en de sites die erop draaien.
 **Poortscan** — een IP aftasten op de gebruikelijke poorten meteen bij het
 aanmaken van een ticket, zodat de agent weet wat er open staat.
 
+**Apparaten** — kastjes en diensten met een eigen API, zonder agent: de
+UniFi-controller (access points, switches, clients, WAN/LAN-gezondheid), TrueNAS
+(versie, uptime, pools, schijven, openstaande meldingen) en elke HTTP-URL die
+JSON teruggeeft. Bij een fout apparaat komt er een melding, net als bij een host.
+
 **Netwerk scannen** — de monitor loopt het eigen subnet af en toont welk IP
 erop staat, met hostnaam, MAC-adres en open poorten. Wat je wilt volgen vink je
 aan en zet je in één keer in de IP-lijst; bestaande hosts worden overgeslagen.
@@ -130,6 +135,31 @@ pct exec 120 -- bash -c 'bash -c "$(curl -fsSL https://raw.githubusercontent.com
 `MAP` (standaard `/opt/werdens-monitor`) en `DIENST` zijn aan te passen. Zonder
 git-installatie valt het script terug op de tarball van GitHub; `DROOG=1` laat
 alleen zien wat er zou gebeuren.
+
+### Verwijderen
+
+Een oude installatie — bijvoorbeeld een die nog als dienst op de Proxmox-host
+staat in plaats van in een eigen LXC — haal je zo weg:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/verwijderen.sh)"
+```
+
+Dat stopt de dienst, zet de autostart uit en verwijdert het systemd- en
+omgevingsbestand. De installatiemap met de database blijft staan; `ALLES=1`
+vooraf maakt ook die leeg. `DROOG=1` toont eerst wat er zou gebeuren.
+
+### UniFi en TrueNAS koppelen
+
+**Apparaten → Apparaat toevoegen**. Bij *UniFi-controller* vul je de URL van de
+controller in (`https://192.168.1.1` of met `:8443`) en een beheerdersaccount;
+de monitor logt in en leest de apparaten, clients en de gezondheid per onderdeel.
+Bij *TrueNAS* maak je in de webinterface een API-sleutel aan (Instellingen →
+API-sleutels) en vul je die als wachtwoord in. *HTTP/JSON* is voor alles met een
+JSON-endpoint: de scalars uit het antwoord komen als waarden op de detailpagina.
+
+Wachtwoorden en sleutels staan in de database, niet in de repo; de API geeft ze
+nooit terug (wel of er een geheim is ingesteld).
 
 ## Schermen
 
@@ -274,6 +304,7 @@ lib/github.js          repo's, tags, commits en CI via de GitHub-API
 lib/hardware.js        CPU, RAM, schijven, GPU, temperatuur en netwerk uitlezen
 lib/netwerk.js         subnetten bepalen, adressen aftasten, ARP en reverse DNS
 lib/update.js          nieuwste versie van GitHub halen, uitpakken, herstarten
+lib/apparaten.js       UniFi, TrueNAS en generieke HTTP-apparaten uitlezen
 lib/slack.js           Slack-webhook: bericht opbouwen en versturen
 public/                index.html (één bestand), sw.js, manifest, iconen
 scripts/werdens-agent.js  hardware-agent voor andere servers (geen npm)

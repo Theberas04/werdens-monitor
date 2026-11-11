@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.3.0">
+<meta name="version" content="1.4.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -542,6 +542,10 @@ details.uitklap[open]>summary{border-color:var(--line)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M12 6.5h5M12 17.5h5"/></svg>
       <span class="navfull">Servers</span><span class="navkort">Servers</span><span class="teller" id="tab-servers"></span>
     </button>
+    <button data-tab="apparaten">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+      <span class="navfull">Apparaten</span><span class="navkort">Lab</span><span class="teller" id="tab-apparaten"></span>
+    </button>
     <button data-tab="tickets">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 000 4v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a2 2 0 000-4z"/><path d="M12 6v2M12 11v2M12 16v2"/></svg>
       <span class="navfull">Tickets</span><span class="navkort">Tickets</span><span class="teller" id="tab-tickets"></span>
@@ -671,6 +675,7 @@ $('#tabs').addEventListener('click', (e) => {
   ticketDetail = null;
   hostDetail = null;
   serverDetail = null;
+  apparaatDetail = null;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b === knop));
   laadHuidig();
 });
@@ -680,6 +685,7 @@ function laadHuidig(metKracht = false) {
   else if (huidigeTab === 'websites') siteDetail ? laadSiteDetail(siteDetail) : laadSites();
   else if (huidigeTab === 'hosts') hostDetail ? laadHostDetail(hostDetail) : laadHosts();
   else if (huidigeTab === 'servers') serverDetail ? laadServerDetail(serverDetail) : laadServers();
+  else if (huidigeTab === 'apparaten') apparaatDetail ? laadApparaatDetail(apparaatDetail) : laadApparaten();
   else if (huidigeTab === 'tickets') ticketDetail ? laadTicketDetail(ticketDetail) : laadTickets();
   else laadInstellingen();
 }
@@ -1179,6 +1185,8 @@ function bevestig(titel, tekst, ja) {
 let hostsCache = [];
 let hostDetail = null;
 let serverDetail = null;
+let apparatenCache = [];
+let apparaatDetail = null;
 let netwerkLaatst = null;      // laatste netwerkscan in de UI
 let netwerkBezig = false;
 
@@ -1599,7 +1607,8 @@ async function laadServerDetail(id) {
       + '<div class="kaart" style="margin:12px 0 14px"><div class="kaart-body">'
       + '<div class="srv-kop"><div class="merkblok"><h2>' + esc(s.naam) + ' <span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span></h2>'
       + '<div class="srv-sub">' + esc(s.host || 'geen hostnaam') + (s.lokaal ? ' · deze monitor' : '') + ' · ' + (s.laatste ? 'gemeten ' + geleden(s.laatste) : 'nog niet gemeten') + '</div></div>'
-      + '<div class="acties">' + (s.lokaal ? '<button class="knop" id="srv-ververs">Verversen</button>' : '') + '<button class="knop stil" id="srv-token">Token</button></div></div>'
+      + '<div class="acties">' + (s.lokaal ? '<button class="knop" id="srv-ververs">Verversen</button>' : '') + '<button class="knop stil" id="srv-token">Token</button>'
+      + (s.lokaal ? '' : '<button class="knop gevaar" id="srv-weg">Verwijderen</button>') + '</div></div>'
       + (s.fout ? '<p class="fout-tekst" style="margin-top:10px">Laatste fout: ' + esc(s.fout) + '</p>' : '')
       + '</div></div>'
       + '<div class="meters">'
@@ -1642,7 +1651,204 @@ async function laadServerDetail(id) {
       catch (e) { toast(e.message, true); }
     });
     $('#srv-token').addEventListener('click', () => toonTokenModal(s, null));
+    const weg = $('#srv-weg');
+    if (weg) weg.addEventListener('click', () => {
+      bevestig('Server verwijderen', 'Weet je zeker dat je ' + s.naam + ' en alle metingen wilt verwijderen? De agent op die machine stopt dan met posten.', async () => {
+        await api('/api/servers/' + id, { method: 'DELETE' });
+        toast('Server verwijderd');
+        serverDetail = null;
+        laadServers();
+      });
+    });
   } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+// ── apparaten (homelab: UniFi, TrueNAS, generiek HTTP) ───────────────────────
+const SOORT_LABEL = { unifi: 'UniFi-controller', truenas: 'TrueNAS', generiek: 'HTTP/JSON' };
+
+function apparaatStatus(st) {
+  if (st === 'fout') return { klasse: 'neer', tekst: 'fout' };
+  if (st === 'stil') return { klasse: 'wacht', tekst: 'stil' };
+  if (st === 'onbekend') return { klasse: 'wacht', tekst: 'nog niet gemeten' };
+  return { klasse: 'ok', tekst: 'ok' };
+}
+
+function apparaatSamenvatting(a) {
+  const d = a.data || {};
+  if (a.soort === 'unifi') {
+    if (!d.apparaten) return 'geen gegevens';
+    const uit = [d.apparaten + ' apparaten'];
+    if (d.online !== undefined) uit.push(d.online + ' online');
+    if (d.clients !== undefined) uit.push(d.clients + ' clients');
+    return uit.join(' · ');
+  }
+  if (a.soort === 'truenas') {
+    const pools = Array.isArray(d.pools) ? d.pools : [];
+    const uit = [];
+    if (pools.length) uit.push(pools.length + ' pool' + (pools.length > 1 ? 's' : ''));
+    if (d.schijven && d.schijven.aantal) uit.push(d.schijven.aantal + ' schijven');
+    if (d.meldingen !== undefined) uit.push(d.meldingen + ' meldingen');
+    if (d.versie) uit.push('versie ' + d.versie);
+    return uit.join(' · ') || 'geen gegevens';
+  }
+  if (d.code) return 'HTTP ' + d.code + (d.ms !== undefined ? ' · ' + d.ms + ' ms' : '');
+  return 'geen gegevens';
+}
+
+function apparaatKaart(a) {
+  const st = apparaatStatus(a.status);
+  return '<a class="srv" data-apparaat="' + a.id + '" href="#">'
+    + '<div class="srv-top"><span class="srv-naam">' + esc(a.naam) + '</span>'
+    + '<span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span>'
+    + '<span class="chip">' + esc(SOORT_LABEL[a.soort] || a.soort) + '</span></div>'
+    + '<div class="srv-host">' + esc(a.url.replace(/^https?:\/\//, '')) + '</div>'
+    + '<div class="srv-stat" style="font-size:13px;color:var(--muted)">' + esc(apparaatSamenvatting(a)) + '</div>'
+    + (a.fout ? '<div class="fout-tekst" style="font-size:12px;margin-top:8px">' + esc(a.fout).slice(0, 110) + '</div>' : '')
+    + '<div class="srv-voet"><span>' + (a.laatste ? 'gemeten ' + geleden(a.laatste) : 'nog niet gemeten') + '</span></div></a>';
+}
+
+async function laadApparaten() {
+  try {
+    const d = await api('/api/apparaten');
+    apparatenCache = d.apparaten || [];
+    const fout = apparatenCache.filter((a) => a.status === 'fout').length;
+    zetTeller('tab-apparaten', apparatenCache.length, fout > 0);
+    beeld.innerHTML =
+      '<div class="kaarten-kop"><div><h2>Apparaten</h2><p class="hint">Kastjes en diensten met een eigen API: de UniFi-controller, TrueNAS en elke HTTP-URL die JSON teruggeeft. De monitor leest ze rechtstreeks, zonder agent op het apparaat.</p></div>'
+      + '<button class="knop primair" id="apparaat-toevoegen">' + ico.plus + ' Apparaat toevoegen</button></div>'
+      + (fout ? '<p class="fout-tekst" style="margin-bottom:12px">' + fout + ' appara' + (fout === 1 ? 'at geeft' : 'ten geven') + ' een fout.</p>' : '')
+      + (apparatenCache.length ? '<div class="srv-grid">' + apparatenCache.map(apparaatKaart).join('') + '</div>'
+        : '<div class="kaart"><div class="kaart-body">' + leeg('Nog geen apparaten. Voeg je UniFi-controller of TrueNAS toe.') + '</div></div>');
+    $('#apparaat-toevoegen').addEventListener('click', () => toonApparaatForm());
+    document.querySelectorAll('[data-apparaat]').forEach((b) => b.addEventListener('click', () => {
+      apparaatDetail = Number(b.dataset.apparaat);
+      laadHuidig();
+    }));
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+function apparaatDetails(a) {
+  const d = a.data || {};
+  const rijen = [];
+  const voeg = (k, v) => { if (v !== undefined && v !== null && v !== '') rijen.push('<tr><th>' + esc(k) + '</th><td>' + v + '</td></tr>'); };
+  if (a.soort === 'unifi') {
+    voeg('Site', esc(d.site || '—'));
+    voeg('Versie', esc(d.versie || '—'));
+    voeg('Apparaten', (d.apparaten ?? '—') + (d.online !== undefined ? ' · ' + d.online + ' online' : ''));
+    const soorten = d.soorten || {};
+    voeg('Soorten', Object.keys(soorten).map((k) => esc(k + ': ' + soorten[k])).join(' · ') || '—');
+    voeg('Clients', d.clients ?? '—');
+    voeg('Uptime', d.uptime_s !== null && d.uptime_s !== undefined ? uptimeTekst(d.uptime_s) : '—');
+    if (d.wan) voeg('WAN', esc([d.wan.status, d.wan.ip, d.wan.isp].filter(Boolean).join(' · ')) || '—');
+    if (d.lan) voeg('LAN', esc([d.lan.status, d.lan.gebruikers !== null ? d.lan.gebruikers + ' gebruikers' : ''].filter(Boolean).join(' · ')) || '—');
+    if (d.www) voeg('Controller', esc([d.www.status, d.www.latentie_ms !== null ? d.www.latentie_ms + ' ms' : ''].filter(Boolean).join(' · ')) || '—');
+    const st = Array.isArray(d.storingen) ? d.storingen : [];
+    voeg('Storingen', st.length ? st.map((x) => esc((x.onderdeel || '?') + ': ' + (x.status || '?'))).join(' · ') : 'geen');
+  } else if (a.soort === 'truenas') {
+    voeg('Hostnaam', esc(d.hostnaam || '—'));
+    voeg('Versie', esc(d.versie || '—'));
+    voeg('Product', esc(d.product || '—'));
+    voeg('Uptime', d.uptime_s !== null && d.uptime_s !== undefined ? uptimeTekst(d.uptime_s) : '—');
+    voeg('Geheugen', d.geheugen_gb ? gb(d.geheugen_gb * 1e9) : '—');
+    voeg('Cores', d.cores ?? '—');
+    if (d.schijven) voeg('Schijven', (d.schijven.aantal ?? 0) + ' · waarvan ' + (d.schijven.ssd ?? 0) + ' SSD');
+    voeg('Meldingen', (d.meldingen ?? 0) + (d.kritiek ? ' · <span class="chip rood">' + d.kritiek + ' kritiek</span>' : ''));
+  } else {
+    voeg('HTTP-code', d.code ?? '—');
+    voeg('Responstijd', d.ms !== undefined ? d.ms + ' ms' : '—');
+    const w = d.waarden || {};
+    const sleutels = Object.keys(w).slice(0, 12);
+    if (sleutels.length) voeg('Waarden', sleutels.map((k) => esc(k + ': ' + w[k])).join('<br>'));
+  }
+  return rijen.length ? '<table class="srv-tabel"><tbody>' + rijen.join('') + '</tbody></table>' : '<p class="leeg">Nog geen gegevens.</p>';
+}
+
+async function laadApparaatDetail(id) {
+  try {
+    const d = await api('/api/apparaten/' + id);
+    const a = d.apparaat;
+    const st = apparaatStatus(a.status);
+    const data = a.data || {};
+    const metingen = a.geschiedenis || [];
+    const pools = Array.isArray(data.pools) ? data.pools : [];
+    const apparatenLijst = Array.isArray(data.lijst) ? data.lijst : [];
+    const meldingen = Array.isArray(data.laatste_meldingen) ? data.laatste_meldingen : [];
+    beeld.innerHTML =
+      '<button class="knop stil klein" data-terug>' + ico.terug + ' Terug</button>'
+      + '<div class="kaart" style="margin:12px 0 14px"><div class="kaart-body">'
+      + '<div class="srv-kop"><div class="merkblok"><h2>' + esc(a.naam) + ' <span class="chip ' + (st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber') + '">' + st.tekst + '</span></h2>'
+      + '<div class="srv-sub">' + esc(SOORT_LABEL[a.soort] || a.soort) + ' · ' + esc(a.url) + ' · ' + (a.laatste ? 'gemeten ' + geleden(a.laatste) : 'nog niet gemeten') + '</div></div>'
+      + '<div class="acties"><button class="knop" id="app-ververs">Verversen</button><button class="knop" id="app-wijzig">Wijzigen</button><button class="knop gevaar" id="app-weg">Verwijderen</button></div></div>'
+      + (a.fout ? '<p class="fout-tekst" style="margin-top:10px">Laatste fout: ' + esc(a.fout) + '</p>' : '')
+      + '</div></div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Gegevens</h2><span class="chip">' + esc(apparaatSamenvatting(a)) + '</span></div><div class="kaart-body" style="padding:0">' + apparaatDetails(a) + '</div></div>'
+      + (pools.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Pools</h2></div><div class="kaart-body" style="padding:0">'
+        + '<table class="srv-tabel"><thead><tr><th>Pool</th><th>Status</th><th>Gebruikt</th><th>Vrij</th><th>Totaal</th><th>%</th></tr></thead><tbody>'
+        + pools.map((p) => '<tr><td><b>' + esc(p.naam) + '</b></td><td>' + esc(p.status || '—') + '</td><td>' + gb(p.gebruikt_pct !== null ? (p.totaal_gb - p.vrij_gb) * 1e9 : null) + '</td><td>' + gb(p.vrij_gb * 1e9) + '</td><td>' + gb(p.totaal_gb * 1e9) + '</td><td><span class="chip ' + (p.gebruikt_pct >= 90 ? 'rood' : p.gebruikt_pct >= 75 ? 'amber' : '') + '">' + nlGetal(p.gebruikt_pct) + '%</span></td></tr>').join('')
+        + '</tbody></table></div></div>' : '')
+      + (apparatenLijst.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Apparaten op de controller</h2><span class="chip">' + apparatenLijst.length + '</span></div><div class="kaart-body" style="padding:0">'
+        + '<table class="srv-tabel"><thead><tr><th>Naam</th><th>Model</th><th>Type</th><th>IP</th><th>Clients</th><th>Status</th></tr></thead><tbody>'
+        + apparatenLijst.map((x) => '<tr><td><b>' + esc(x.naam) + '</b><div class="mono">' + esc(x.versie || '') + '</div></td><td>' + esc(x.model || '—') + '</td><td>' + esc(x.type || '—') + '</td><td class="mono">' + esc(x.ip || '—') + '</td><td>' + (x.clients ?? '—') + '</td><td><span class="chip ' + (x.online ? 'groen' : 'rood') + '">' + (x.online ? 'online' : 'offline') + '</span></td></tr>').join('')
+        + '</tbody></table></div></div>' : '')
+      + (meldingen.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Meldingen</h2><span class="chip">' + meldingen.length + '</span></div><div class="kaart-body"><div class="alerts">'
+        + meldingen.map((m) => '<div class="alert ' + (String(m.niveau).toUpperCase() === 'CRITICAL' ? 'rood' : 'amber') + '"><div class="tekst">' + esc(m.tekst || '') + '</div><span class="tijd">' + esc(m.niveau || '') + '</span></div>').join('')
+        + '</div></div></div>' : '')
+      + '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Laatste metingen</h2><span class="chip">' + metingen.length + '</span></div><div class="kaart-body">'
+      + (metingen.length ? '<div class="alerts">' + metingen.slice(-12).reverse().map((m) => '<div class="alert ' + (m.status === 'ok' ? '' : 'rood') + '"><div class="tekst">' + esc(datum(m.op)) + ' — ' + esc(m.status) + '</div></div>').join('') + '</div>' : leeg('Nog geen metingen.'))
+      + '</div></div>';
+
+    document.querySelector('[data-terug]').addEventListener('click', () => { apparaatDetail = null; laadHuidig(); });
+    $('#app-ververs').addEventListener('click', async () => {
+      try { await api('/api/apparaten/' + id + '/verversen', { method: 'POST' }); toast('Apparaat bijgewerkt'); laadApparaatDetail(id); }
+      catch (e) { toast(e.message, true); }
+    });
+    $('#app-wijzig').addEventListener('click', () => toonApparaatForm(a));
+    $('#app-weg').addEventListener('click', () => {
+      bevestig('Apparaat verwijderen', 'Weet je zeker dat je ' + a.naam + ' en alle metingen wilt verwijderen?', async () => {
+        await api('/api/apparaten/' + id, { method: 'DELETE' });
+        toast('Apparaat verwijderd');
+        apparaatDetail = null;
+        laadApparaten();
+      });
+    });
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+function toonApparaatForm(apparaat = null) {
+  const m = $('#modal');
+  const a = apparaat || {};
+  const soort = a.soort || 'unifi';
+  const opties = Object.keys(SOORT_LABEL).map((k) => '<option value="' + k + '"' + (k === soort ? ' selected' : '') + '>' + esc(SOORT_LABEL[k]) + '</option>').join('');
+  const veldHint = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', generiek: 'Elke URL die JSON teruggeeft' }[soort];
+  $('#modal-inhoud').innerHTML = '<h3 style="margin-bottom:6px">' + (apparaat ? 'Apparaat wijzigen' : 'Apparaat toevoegen') + '</h3>'
+    + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 16px">De monitor leest het apparaat via zijn eigen API. Bij UniFi de controller-URL en een beheerdersaccount; bij TrueNAS een API-key uit de webinterface (Instellingen → API-sleutels).</p>'
+    + '<form id="appform">'
+    + '<label class="veld"><span>Naam</span><input name="naam" value="' + esc(a.naam || '') + '" placeholder="bijv. unifi-thuis" required></label>'
+    + '<label class="veld"><span>Soort</span><select name="soort" id="app-soort">' + opties + '</select></label>'
+    + '<label class="veld"><span>URL</span><input name="url" value="' + esc(a.url || '') + '" placeholder="https://192.168.1.1" required></label>'
+    + '<label class="veld"><span>Gebruiker of token (bij generiek)</span><input name="gebruiker" value="' + esc(a.gebruiker || '') + '" placeholder="beheerder of bearer-token"></label>'
+    + '<label class="veld"><span>Wachtwoord of API-key</span><input name="geheim" type="password" placeholder="' + (apparaat && a.heeft_geheim ? 'laat leeg om het bestaande te houden' : 'wachtwoord of API-key') + '"></label>'
+    + '<p class="hint" id="app-hint">' + esc(veldHint) + '</p>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button type="button" class="knop" id="app-annuleer">Annuleren</button><button type="submit" class="knop primair">' + (apparaat ? 'Opslaan' : 'Toevoegen') + '</button></div></form>';
+  m.classList.add('aan');
+  const sluit = () => m.classList.remove('aan');
+  $('#app-annuleer').addEventListener('click', sluit);
+  m.addEventListener('click', (e) => { if (e.target === m) sluit(); }, { once: true });
+  $('#app-soort').addEventListener('change', (e) => {
+    $('#app-hint').textContent = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', generiek: 'Elke URL die JSON teruggeeft' }[e.target.value] || '';
+  });
+  $('#appform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const lichaam = { naam: f.get('naam'), soort: f.get('soort'), url: f.get('url'), gebruiker: f.get('gebruiker'), geheim: f.get('geheim') };
+    try {
+      if (apparaat) await api('/api/apparaten/' + apparaat.id, { method: 'PATCH', lichaam });
+      else await api('/api/apparaten', { method: 'POST', lichaam });
+      sluit();
+      toast(apparaat ? 'Apparaat bijgewerkt' : 'Apparaat toegevoegd');
+      if (apparaat) laadApparaatDetail(apparaat.id); else { apparaatDetail = null; laadHuidig(); }
+    } catch (err) { toast(err.message, true); }
+  });
 }
 
 function toonServerForm() {

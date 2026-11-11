@@ -342,4 +342,114 @@ test('bijwerken: versie opvragen', async () => {
   assert.equal(r.data.versie, require('../package.json').version);
   assert.equal(r.data.repo, 'Theberas04/werdens-monitor');
 });
+test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', async () => {
+  // Nagebootste UniFi-controller en TrueNAS op één poort.
+  const kast = http.createServer((req, res) => {
+    // UniFi OS zet de API onder /proxy/network; de mock accepteert beide.
+    const u = String(req.url || '').replace(/^\/proxy\/network/, '');
+    const json = (obj, code = 200, extra = {}) => {
+      res.writeHead(code, { 'content-type': 'application/json', ...extra });
+      res.end(JSON.stringify(obj));
+    };
+    if (req.method === 'POST' && u === '/api/auth/login') {
+      const lichaam = [];
+      req.on('data', (c) => lichaam.push(c));
+      return req.on('end', () => {
+        try {
+          const b = JSON.parse(Buffer.concat(lichaam).toString() || '{}');
+          if (b.password !== 'goed') return json({ meta: { rc: 'error' } }, 401);
+        } catch { /* leeg lichaam */ }
+        json({ ok: true }, 200, { 'set-cookie': 'TOKEN=abc; Path=/; HttpOnly' });
+      });
+    }
+    if (u === '/api/self/sites') return json({ data: [{ name: 'default', desc: 'Thuis' }] });
+    if (u === '/api/s/default/stat/device') return json({ data: [
+      { name: 'AP-1', type: 'uap', model: 'U7-Pro', state: 1, version: '7.0.1', uptime: 864000, ip: '192.168.1.130', num_sta: 3 },
+      { name: 'SW-1', type: 'usw', model: 'USW-24-PoE', state: 1, version: '7.0.1', uptime: 864000, ip: '192.168.1.84', num_sta: 2 },
+    ] });
+    if (u === '/api/s/default/stat/sta') return json({ data: [{ mac: 'aa' }, { mac: 'bb' }, { mac: 'cc' }] });
+    if (u === '/api/s/default/stat/health') return json({ data: [
+      { subsystem: 'wan', status: 'ok', wan_ip: '203.0.113.9', isp_name: 'KPN' },
+      { subsystem: 'lan', status: 'ok', num_user: 3 },
+      { subsystem: 'www', status: 'ok', latency: 12, uptime: 99.9 },
+    ] });
+    if (u === '/api/v2.0/system/info') return json({ hostname: 'truenas', version: '24.04.2', uptime_seconds: 123456, physmem: 34359738368, cores: 8, product_name: 'TRUENAS' });
+    if (u === '/api/v2.0/pool') return json([{ name: 'tank', size: 1000000000000, free: 400000000000, status: 'ONLINE', healthy: true }]);
+    if (u === '/api/v2.0/disk') return json([{ name: 'sda', type: 'SSD', rotational: false }, { name: 'sdb', type: 'HDD', rotational: true }]);
+    if (u === '/api/v2.0/alert/list') {
+      if (req.headers.authorization !== 'Bearer goed') return json({ error: 'unauthorized' }, 401);
+      return json([]);
+    }
+    if (u === '/api/gegevens') return json({ naam: 'kastje', versie: '1.2.3', temperatuur: 41.5, online: true });
+    json({ fout: 'onbekend pad' }, 404);
+  });
+  await new Promise((r) => kast.listen(0, '127.0.0.1', r));
+  const adres = 'http://127.0.0.1:' + kast.address().port;
+  try {
+    const unifi = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'UniFi thuis', soort: 'unifi', url: adres, gebruiker: 'admin', geheim: 'goed' } });
+    assert.equal(unifi.status, 201, 'UniFi toevoegen lukt');
+    assert.equal(unifi.data.apparaat.status, 'ok');
+    assert.equal(unifi.data.apparaat.data.apparaten, 2);
+    assert.equal(unifi.data.apparaat.data.clients, 3);
+    assert.equal(unifi.data.apparaat.data.wan.isp, 'KPN');
+
+    const nas = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'TrueNAS', soort: 'truenas', url: adres, geheim: 'goed' } });
+    assert.equal(nas.status, 201);
+    assert.equal(nas.data.apparaat.status, 'ok');
+    assert.equal(nas.data.apparaat.data.pools.length, 1);
+    assert.equal(nas.data.apparaat.data.pools[0].gebruikt_pct, 60);
+
+    const gen = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Kastje', soort: 'generiek', url: adres + '/api/gegevens' } });
+    assert.equal(gen.status, 201);
+    assert.equal(gen.data.apparaat.data.code, 200);
+    assert.equal(gen.data.apparaat.data.waarden.versie, '1.2.3');
+
+    // Een verkeerd wachtwoord/key geeft een fout, geen crash.
+    const stuk = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Stuk', soort: 'truenas', url: adres, geheim: 'fout' } });
+    assert.equal(stuk.status, 201);
+    assert.equal(stuk.data.apparaat.status, 'fout');
+    assert.match(stuk.data.apparaat.fout, /geweigerd|401/);
+
+    const lijst = await alsJson('/api/apparaten');
+    assert.equal(lijst.status, 200);
+    assert.ok(lijst.data.apparaten.length >= 4, 'alle apparaten staan in de lijst');
+    assert.ok(lijst.data.soorten.unifi, 'soorten komen mee voor het formulier');
+    assert.ok(!lijst.data.apparaten.some((a) => 'geheim' in a), 'geheimen gaan nooit mee');
+
+    const detail = await alsJson('/api/apparaten/' + unifi.data.apparaat.id);
+    assert.equal(detail.status, 200);
+    assert.ok(Array.isArray(detail.data.apparaat.geschiedenis), 'geschiedenis komt mee');
+
+    const gewijzigd = await alsJson('/api/apparaten/' + nas.data.apparaat.id, { method: 'PATCH', lichaam: { naam: 'NAS zolder' } });
+    assert.equal(gewijzigd.status, 200);
+    assert.equal(gewijzigd.data.apparaat.naam, 'NAS zolder');
+    assert.equal(gewijzigd.data.apparaat.heeft_geheim, true, 'leeg geheim laat de key staan');
+
+    const ververs = await alsJson('/api/apparaten/' + unifi.data.apparaat.id + '/verversen', { method: 'POST' });
+    assert.equal(ververs.status, 200);
+    assert.equal(ververs.data.apparaat.status, 'ok');
+
+    const weg = await alsJson('/api/apparaten/' + unifi.data.apparaat.id, { method: 'DELETE' });
+    assert.equal(weg.status, 200);
+    const na = await alsJson('/api/apparaten/' + unifi.data.apparaat.id);
+    assert.equal(na.status, 404, 'verwijderd apparaat is weg');
+
+    const onzin = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'X', soort: 'onbekend', url: 'https://x' } });
+    assert.equal(onzin.status, 400, 'onbekend soort wordt geweigerd');
+    const geenUrl = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'X', soort: 'unifi', url: 'geen-url' } });
+    assert.equal(geenUrl.status, 400, 'URL zonder http(s) wordt geweigerd');
+  } finally {
+    kast.close();
+  }
+});
+
+test('servers: een externe server kan verwijderd worden', async () => {
+  const nieuw = await alsJson('/api/servers', { method: 'POST', lichaam: { naam: 'wegwerp' } });
+  assert.equal(nieuw.status, 201);
+  const id = nieuw.data.server.id;
+  const weg = await alsJson('/api/servers/' + id, { method: 'DELETE' });
+  assert.equal(weg.status, 200);
+  const lijst = await alsJson('/api/servers');
+  assert.ok(!lijst.data.servers.some((s) => s.id === id), 'server is weg');
+});
 
