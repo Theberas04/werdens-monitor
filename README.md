@@ -229,17 +229,21 @@ draai dan vanaf de Proxmox-console in de LXC (of als root op de machine):
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/reset-wachtwoord.sh)"
 ```
 
-Het script wist de afdruk en alle sessies en herstart de dienst; bij de volgende
-start maakt de app een nieuw wachtwoord en schrijft dat naar
-`data/admin-wachtwoord.txt`. Wil je zelf een wachtwoord kiezen:
+Het script zet meteen een nieuw wachtwoord in de database (16 tekens), wist alle
+sessies, zet het wachtwoord ook in `data/admin-wachtwoord.txt` en herstart de
+dienst als die bestaat. **Inloggen werkt direct**, ook zonder herstart. Wil je
+zelf een wachtwoord kiezen:
 
 ```bash
 NIEUW=minstens8tekens bash -c "$(curl -fsSL .../deploy/reset-wachtwoord.sh)"
 ```
 
 `DROOG=1` laat eerst zien wat er zou gebeuren. `MAP` (standaard
-`/opt/werdens-monitor`) en `DIENST` zijn aan te passen. Werkt de dienst niet via
-systemd, start de app dan zelf opnieuw en kijk in `data/admin-wachtwoord.txt`.
+`/opt/werdens-monitor`) en `DIENST` zijn aan te passen.
+
+Let op: het inlogwachtwoord van het dashboard staat los van je Proxmox-wachtwoord.
+Een nieuwe Proxmox-API-token of -wachtwoord verandert niets aan de dashboard-login;
+gebruik daarvoor dit script of **Instellingen → Wachtwoord**.
 
 ## Schermen
 
