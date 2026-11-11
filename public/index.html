@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.8.0">
+<meta name="version" content="1.8.1">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -2072,7 +2072,7 @@ async function laadServerDetail(id) {
 
 // ── apparaten (homelab: UniFi, TrueNAS, generiek HTTP) ───────────────────────
 const SOORT_LABEL = { unifi: 'UniFi-controller', truenas: 'TrueNAS', proxmox: 'Proxmox VE', generiek: 'HTTP/JSON' };
-const SOORT_HINT = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', proxmox: 'URL met poort 8006, bijvoorbeeld https://192.168.1.12:8006. Gebruiker: root@pam!monitor met het token-secret (Datacenter → Permissions → API Tokens, Privilege Separation uit), óf root@pam met het wachtwoord (dan moet 2FA uit staan).', generiek: 'Elke URL die JSON teruggeeft' };
+const SOORT_HINT = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', proxmox: 'URL met poort 8006, bijvoorbeeld https://192.168.1.12:8006. Gebruiker: root@pam!monitor met het token-secret (Datacenter → Permissions → API Tokens, Privilege Separation uit), óf root@pam met het wachtwoord (dan moet 2FA uit staan). Let op: staat Privilege Separation aan, geef de token dan de rol PVEAuditor op pad / met Propagate aan — anders zie je alleen nodenamen en geen cijfers.', generiek: 'Elke URL die JSON teruggeeft' };
 
 function apparaatStatus(st) {
   if (st === 'fout') return { klasse: 'neer', tekst: 'fout' };
@@ -2218,7 +2218,7 @@ async function laadApparaatDetail(id) {
           + '</div></div></div>' : '')
       + (Array.isArray(data.nodes) && data.nodes.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Nodes</h2><span class="chip">' + data.nodes.length + '</span></div><div class="kaart-body" style="padding:0">'
         + '<table class="srv-tabel"><thead><tr><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th><th>Schijf</th><th>Load</th><th>Uptime</th></tr></thead><tbody>'
-        + data.nodes.map((n) => '<tr><td><b>' + esc(n.naam) + '</b></td><td><span class="chip ' + (n.status === 'online' ? 'groen' : 'rood') + '">' + esc(n.status) + '</span></td><td>' + nlGetal(n.cpu_pct) + '%</td><td>' + nlGetal(n.ram_pct) + '%' + (n.ram_totaal_gb ? ' <span class="mono">(' + n.ram_gb + '/' + n.ram_totaal_gb + ' GB)</span>' : '') + '</td><td>' + nlGetal(n.disk_pct) + '%</td><td>' + (n.load ?? '—') + '</td><td>' + (n.uptime_s !== null && n.uptime_s !== undefined ? uptimeTekst(n.uptime_s) : '—') + '</td></tr>').join('')
+        + data.nodes.map((n) => '<tr><td><b>' + esc(n.naam) + '</b></td><td><span class="chip ' + (n.status === 'online' ? 'groen' : 'rood') + '">' + esc(n.status) + '</span></td><td>' + (n.cpu_pct === null || n.cpu_pct === undefined ? '—' : nlGetal(n.cpu_pct) + '%') + '</td><td>' + (n.ram_pct === null || n.ram_pct === undefined ? '—' : nlGetal(n.ram_pct) + '%' + (n.ram_totaal_gb ? ' <span class="mono">(' + n.ram_gb + '/' + n.ram_totaal_gb + ' GB)</span>' : '')) + '</td><td>' + (n.disk_pct === null || n.disk_pct === undefined ? '—' : nlGetal(n.disk_pct) + '%') + '</td><td>' + (n.load ?? '—') + '</td><td>' + (n.uptime_s !== null && n.uptime_s !== undefined ? uptimeTekst(n.uptime_s) : '—') + '</td></tr>').join('')
         + '</tbody></table></div></div>' : '')
       + (Array.isArray(data.opslag) && data.opslag.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Opslag</h2><span class="chip">' + data.opslag.length + '</span></div><div class="kaart-body" style="padding:0">'
         + '<table class="srv-tabel"><thead><tr><th>Opslag</th><th>Node</th><th>Vrij</th><th>Totaal</th><th>%</th></tr></thead><tbody>'

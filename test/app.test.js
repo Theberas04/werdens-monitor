@@ -413,11 +413,26 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     }
     if (u.startsWith('/api2/json/')) {
       const metTicket = String(req.headers.cookie || '').includes('PVEAuthCookie=PVE:goed');
-      if (req.headers.authorization !== 'PVEAPIToken=root@pam!monitor=goed' && !metTicket) return json({ data: null, errors: 'invalid token' }, 401);
+      const auth = String(req.headers.authorization || '');
+      if (auth !== 'PVEAPIToken=root@pam!monitor=goed' && auth !== 'PVEAPIToken=root@pam!monitor=geenrecht' && auth !== 'PVEAPIToken=root@pam!monitor=alleenresources' && !metTicket) return json({ data: null, errors: 'invalid token' }, 401);
       if (u === '/api2/json/version') return json({ data: { version: '8.2.4', release: '8.2' } });
+      // Token zonder Sys.Audit: Proxmox geeft wel de nodenamen en status, maar geen cijfers.
+      if (u === '/api2/json/nodes' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: [
+        { node: 'pve1', status: 'online', level: '' },
+        { node: 'pve2', status: 'offline', level: '' },
+      ] });
+      if (u === '/api2/json/cluster/resources' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: [] });
+      // Token waarbij /nodes geen cijfers geeft maar /cluster/resources ze wel heeft.
+      if (u === '/api2/json/nodes' && auth === 'PVEAPIToken=root@pam!monitor=alleenresources') return json({ data: [
+        { node: 'pve1', status: 'online', level: '' },
+      ] });
       if (u === '/api2/json/nodes') return json({ data: [
         { node: 'pve1', status: 'online', uptime: 604800, cpu: 0.12, mem: 8589934592, maxmem: 34359738368, disk: 21474836480, maxdisk: 107374182400, loadavg: 0.42 },
         { node: 'pve2', status: 'offline', uptime: 0, cpu: 0, mem: 0, maxmem: 34359738368, disk: 0, maxdisk: 107374182400 },
+      ] });
+      if (u === '/api2/json/cluster/resources' && auth === 'PVEAPIToken=root@pam!monitor=alleenresources') return json({ data: [
+        { type: 'node', node: 'pve1', status: 'online', cpu: 0.25, maxcpu: 4, mem: 8589934592, maxmem: 34359738368, disk: 21474836480, maxdisk: 107374182400, uptime: 604800 },
+        { type: 'qemu', name: 'docker-vm', status: 'running', node: 'pve1' },
       ] });
       if (u === '/api2/json/cluster/resources') return json({ data: [
         { type: 'qemu', name: 'docker-vm', status: 'running', node: 'pve1' },
@@ -476,6 +491,19 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     const pveFout = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox fout', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'fout' } });
     assert.equal(pveFout.data.apparaat.status, 'fout');
     assert.match(pveFout.data.apparaat.fout, /geweigerd|401/);
+
+    // Token zonder Sys.Audit: wel nodenamen, geen cijfers. Dat moet een duidelijke
+    // melding geven in plaats van een groene 'ok' met overal 0%.
+    const pveRechten = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox zonder rechten', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'geenrecht' } });
+    assert.equal(pveRechten.data.apparaat.status, 'fout', 'geen cijfers is een fout');
+    assert.match(pveRechten.data.apparaat.fout, /Sys\.Audit|leesrechten/i);
+    assert.equal(pveRechten.data.apparaat.data.nodes[0].cpu_pct, null, 'geen verzonnen 0%');
+
+    // Zonder cijfers in /nodes vullen we aan vanuit /cluster/resources.
+    const pveResources = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox alleen resources', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'alleenresources' } });
+    assert.equal(pveResources.data.apparaat.status, 'ok');
+    assert.equal(pveResources.data.apparaat.data.nodes[0].cpu_pct, 25, 'cijfers komen uit cluster/resources');
+    assert.equal(pveResources.data.apparaat.data.nodes[0].ram_pct, 25);
 
     // Een verkeerd wachtwoord/key geeft een fout, geen crash.
     const stuk = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Stuk', soort: 'truenas', url: adres, geheim: 'fout' } });

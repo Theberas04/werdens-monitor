@@ -197,6 +197,12 @@ en bij wachtwoord het gewone wachtwoord in. De monitor haalt dan eerst een ticke
 op. Dat werkt alleen als 2FA uit staat voor dat account; met 2FA is een API-token
 de enige weg.
 
+Staat *Privilege Separation* bij het token toch aan, geef het token dan rechten:
+**Datacenter → Permissions → Add → API Token**, pad `/`, rol `PVEAuditor`, en zet
+*Propagate* aan. Zonder die rechten geeft Proxmox wél de nodenamen en de versie
+maar geen cijfers; de monitor zegt dat dan met zoveel woorden in plaats van
+overal 0% te tonen.
+
 Let op: een Proxmox-host hoort onder **Apparaten**, niet onder *Servers*. Bij
 *Servers* hoort een agent-script op de machine; een Proxmox-host leest de monitor
 rechtstreeks via de API.
