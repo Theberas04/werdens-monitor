@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.4.0">
+<meta name="version" content="1.5.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -1664,7 +1664,8 @@ async function laadServerDetail(id) {
 }
 
 // ── apparaten (homelab: UniFi, TrueNAS, generiek HTTP) ───────────────────────
-const SOORT_LABEL = { unifi: 'UniFi-controller', truenas: 'TrueNAS', generiek: 'HTTP/JSON' };
+const SOORT_LABEL = { unifi: 'UniFi-controller', truenas: 'TrueNAS', proxmox: 'Proxmox VE', generiek: 'HTTP/JSON' };
+const SOORT_HINT = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', proxmox: 'URL van de Proxmox-host met poort 8006, bijvoorbeeld https://192.168.1.10:8006. Gebruiker: root@pam!monitor, sleutel: het token-secret.', generiek: 'Elke URL die JSON teruggeeft' };
 
 function apparaatStatus(st) {
   if (st === 'fout') return { klasse: 'neer', tekst: 'fout' };
@@ -1680,6 +1681,16 @@ function apparaatSamenvatting(a) {
     const uit = [d.apparaten + ' apparaten'];
     if (d.online !== undefined) uit.push(d.online + ' online');
     if (d.clients !== undefined) uit.push(d.clients + ' clients');
+    return uit.join(' · ');
+  }
+  if (a.soort === 'proxmox') {
+    if (!d.nodes) return 'geen gegevens';
+    const uit = [];
+    uit.push((d.nodes_online ?? 0) + ' node' + ((d.nodes_online ?? 0) === 1 ? '' : 's') + ' online');
+    if (d.nodes_offline) uit.push(d.nodes_offline + ' offline');
+    if (d.vms) uit.push(d.vms.aan + '/' + d.vms.totaal + ' VM\'s aan');
+    if (d.lxc) uit.push(d.lxc.aan + '/' + d.lxc.totaal + ' containers aan');
+    if (d.versie) uit.push('versie ' + d.versie);
     return uit.join(' · ');
   }
   if (a.soort === 'truenas') {
@@ -1718,7 +1729,7 @@ async function laadApparaten() {
       + '<button class="knop primair" id="apparaat-toevoegen">' + ico.plus + ' Apparaat toevoegen</button></div>'
       + (fout ? '<p class="fout-tekst" style="margin-bottom:12px">' + fout + ' appara' + (fout === 1 ? 'at geeft' : 'ten geven') + ' een fout.</p>' : '')
       + (apparatenCache.length ? '<div class="srv-grid">' + apparatenCache.map(apparaatKaart).join('') + '</div>'
-        : '<div class="kaart"><div class="kaart-body">' + leeg('Nog geen apparaten. Voeg je UniFi-controller of TrueNAS toe.') + '</div></div>');
+        : '<div class="kaart"><div class="kaart-body">' + leeg('Nog geen apparaten. Voeg je UniFi-controller, TrueNAS of Proxmox-host toe.') + '</div></div>');
     $('#apparaat-toevoegen').addEventListener('click', () => toonApparaatForm());
     document.querySelectorAll('[data-apparaat]').forEach((b) => b.addEventListener('click', () => {
       apparaatDetail = Number(b.dataset.apparaat);
@@ -1744,6 +1755,15 @@ function apparaatDetails(a) {
     if (d.www) voeg('Controller', esc([d.www.status, d.www.latentie_ms !== null ? d.www.latentie_ms + ' ms' : ''].filter(Boolean).join(' · ')) || '—');
     const st = Array.isArray(d.storingen) ? d.storingen : [];
     voeg('Storingen', st.length ? st.map((x) => esc((x.onderdeel || '?') + ': ' + (x.status || '?'))).join(' · ') : 'geen');
+  } else if (a.soort === 'proxmox') {
+    voeg('Versie', esc([d.versie, d.release].filter(Boolean).join(' · ') || '—'));
+    voeg('Nodes', (d.nodes_online ?? 0) + ' online' + (d.nodes_offline ? ' · <span class="chip rood">' + d.nodes_offline + ' offline</span>' : ''));
+    voeg('Uptime', d.uptime_s !== null && d.uptime_s !== undefined ? uptimeTekst(d.uptime_s) : '—');
+    if (d.vms) voeg('Virtuele machines', d.vms.aan + ' aan · ' + d.vms.uit + ' uit · ' + d.vms.totaal + ' totaal');
+    if (d.lxc) voeg('Containers', d.lxc.aan + ' aan · ' + d.lxc.uit + ' uit · ' + d.lxc.totaal + ' totaal');
+    const st = Array.isArray(d.gestopt) ? d.gestopt : [];
+    voeg('Gestopt', st.length ? st.map((x) => esc((x.naam || '?') + ' (' + x.soort + ', ' + x.node + ')')).join(' · ') : 'niets');
+    voeg('Opslag', (Array.isArray(d.opslag) && d.opslag.length) ? (d.volle_opslag ? '<span class="chip rood">' + d.volle_opslag + ' bijna vol</span>' : 'gezond') : '—');
   } else if (a.soort === 'truenas') {
     voeg('Hostnaam', esc(d.hostnaam || '—'));
     voeg('Versie', esc(d.versie || '—'));
@@ -1782,6 +1802,14 @@ async function laadApparaatDetail(id) {
       + (a.fout ? '<p class="fout-tekst" style="margin-top:10px">Laatste fout: ' + esc(a.fout) + '</p>' : '')
       + '</div></div>'
       + '<div class="kaart"><div class="kaart-kop"><h2>Gegevens</h2><span class="chip">' + esc(apparaatSamenvatting(a)) + '</span></div><div class="kaart-body" style="padding:0">' + apparaatDetails(a) + '</div></div>'
+      + (Array.isArray(data.nodes) && data.nodes.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Nodes</h2><span class="chip">' + data.nodes.length + '</span></div><div class="kaart-body" style="padding:0">'
+        + '<table class="srv-tabel"><thead><tr><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th><th>Schijf</th><th>Load</th><th>Uptime</th></tr></thead><tbody>'
+        + data.nodes.map((n) => '<tr><td><b>' + esc(n.naam) + '</b></td><td><span class="chip ' + (n.status === 'online' ? 'groen' : 'rood') + '">' + esc(n.status) + '</span></td><td>' + nlGetal(n.cpu_pct) + '%</td><td>' + nlGetal(n.ram_pct) + '%' + (n.ram_totaal_gb ? ' <span class="mono">(' + n.ram_gb + '/' + n.ram_totaal_gb + ' GB)</span>' : '') + '</td><td>' + nlGetal(n.disk_pct) + '%</td><td>' + (n.load ?? '—') + '</td><td>' + (n.uptime_s !== null && n.uptime_s !== undefined ? uptimeTekst(n.uptime_s) : '—') + '</td></tr>').join('')
+        + '</tbody></table></div></div>' : '')
+      + (Array.isArray(data.opslag) && data.opslag.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Opslag</h2><span class="chip">' + data.opslag.length + '</span></div><div class="kaart-body" style="padding:0">'
+        + '<table class="srv-tabel"><thead><tr><th>Opslag</th><th>Node</th><th>Vrij</th><th>Totaal</th><th>%</th></tr></thead><tbody>'
+        + data.opslag.map((o) => '<tr><td><b>' + esc(o.naam) + '</b></td><td>' + esc(o.node || '—') + '</td><td>' + gb(o.vrij_gb * 1e9) + '</td><td>' + gb(o.totaal_gb * 1e9) + '</td><td><span class="chip ' + (o.gebruikt_pct >= 90 ? 'rood' : o.gebruikt_pct >= 75 ? 'amber' : '') + '">' + nlGetal(o.gebruikt_pct) + '%</span></td></tr>').join('')
+        + '</tbody></table></div></div>' : '')
       + (pools.length ? '<div class="kaart" style="margin-top:14px"><div class="kaart-kop"><h2>Pools</h2></div><div class="kaart-body" style="padding:0">'
         + '<table class="srv-tabel"><thead><tr><th>Pool</th><th>Status</th><th>Gebruikt</th><th>Vrij</th><th>Totaal</th><th>%</th></tr></thead><tbody>'
         + pools.map((p) => '<tr><td><b>' + esc(p.naam) + '</b></td><td>' + esc(p.status || '—') + '</td><td>' + gb(p.gebruikt_pct !== null ? (p.totaal_gb - p.vrij_gb) * 1e9 : null) + '</td><td>' + gb(p.vrij_gb * 1e9) + '</td><td>' + gb(p.totaal_gb * 1e9) + '</td><td><span class="chip ' + (p.gebruikt_pct >= 90 ? 'rood' : p.gebruikt_pct >= 75 ? 'amber' : '') + '">' + nlGetal(p.gebruikt_pct) + '%</span></td></tr>').join('')
@@ -1819,9 +1847,9 @@ function toonApparaatForm(apparaat = null) {
   const a = apparaat || {};
   const soort = a.soort || 'unifi';
   const opties = Object.keys(SOORT_LABEL).map((k) => '<option value="' + k + '"' + (k === soort ? ' selected' : '') + '>' + esc(SOORT_LABEL[k]) + '</option>').join('');
-  const veldHint = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', generiek: 'Elke URL die JSON teruggeeft' }[soort];
+  const veldHint = SOORT_HINT[soort] || '';
   $('#modal-inhoud').innerHTML = '<h3 style="margin-bottom:6px">' + (apparaat ? 'Apparaat wijzigen' : 'Apparaat toevoegen') + '</h3>'
-    + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 16px">De monitor leest het apparaat via zijn eigen API. Bij UniFi de controller-URL en een beheerdersaccount; bij TrueNAS een API-key uit de webinterface (Instellingen → API-sleutels).</p>'
+    + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 16px">De monitor leest het apparaat via zijn eigen API. Bij UniFi de controller-URL en een beheerdersaccount; bij TrueNAS een API-key uit de webinterface (Instellingen → API-sleutels); bij Proxmox een API-token uit Datacenter → Permissions → API Tokens.</p>'
     + '<form id="appform">'
     + '<label class="veld"><span>Naam</span><input name="naam" value="' + esc(a.naam || '') + '" placeholder="bijv. unifi-thuis" required></label>'
     + '<label class="veld"><span>Soort</span><select name="soort" id="app-soort">' + opties + '</select></label>'
@@ -1835,7 +1863,7 @@ function toonApparaatForm(apparaat = null) {
   $('#app-annuleer').addEventListener('click', sluit);
   m.addEventListener('click', (e) => { if (e.target === m) sluit(); }, { once: true });
   $('#app-soort').addEventListener('change', (e) => {
-    $('#app-hint').textContent = { unifi: 'URL van de controller (poort 443 of 8443)', truenas: 'URL van TrueNAS, bijvoorbeeld http://192.168.1.41', generiek: 'Elke URL die JSON teruggeeft' }[e.target.value] || '';
+    $('#app-hint').textContent = SOORT_HINT[e.target.value] || '';
   });
   $('#appform').addEventListener('submit', async (e) => {
     e.preventDefault();

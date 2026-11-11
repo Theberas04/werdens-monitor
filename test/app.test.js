@@ -381,6 +381,23 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
       return json([]);
     }
     if (u === '/api/gegevens') return json({ naam: 'kastje', versie: '1.2.3', temperatuur: 41.5, online: true });
+    // Proxmox VE: antwoorden zitten altijd in een 'data'-wikkel; het token gaat
+    // als PVEAPIToken=user@realm!id=secret in de Authorization-kop.
+    if (u.startsWith('/api2/json/')) {
+      if (req.headers.authorization !== 'PVEAPIToken=root@pam!monitor=goed') return json({ data: null, errors: 'invalid token' }, 401);
+      if (u === '/api2/json/version') return json({ data: { version: '8.2.4', release: '8.2' } });
+      if (u === '/api2/json/nodes') return json({ data: [
+        { node: 'pve1', status: 'online', uptime: 604800, cpu: 0.12, mem: 8589934592, maxmem: 34359738368, disk: 21474836480, maxdisk: 107374182400, loadavg: 0.42 },
+        { node: 'pve2', status: 'offline', uptime: 0, cpu: 0, mem: 0, maxmem: 34359738368, disk: 0, maxdisk: 107374182400 },
+      ] });
+      if (u === '/api2/json/cluster/resources') return json({ data: [
+        { type: 'qemu', name: 'docker-vm', status: 'running', node: 'pve1' },
+        { type: 'qemu', name: 'test-vm', status: 'stopped', node: 'pve1' },
+        { type: 'lxc', name: 'monitor', status: 'running', node: 'pve1' },
+        { type: 'lxc', name: 'oude-ct', status: 'stopped', node: 'pve1' },
+        { type: 'storage', storage: 'local-lvm', node: 'pve1', disk: 950000000000, maxdisk: 1000000000000 },
+      ] });
+    }
     json({ fout: 'onbekend pad' }, 404);
   });
   await new Promise((r) => kast.listen(0, '127.0.0.1', r));
@@ -403,6 +420,22 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     assert.equal(gen.status, 201);
     assert.equal(gen.data.apparaat.data.code, 200);
     assert.equal(gen.data.apparaat.data.waarden.versie, '1.2.3');
+
+    const pve = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox thuis', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'goed' } });
+    assert.equal(pve.status, 201, 'Proxmox toevoegen lukt');
+    assert.equal(pve.data.apparaat.status, 'fout', 'een offline node is een fout');
+    assert.equal(pve.data.apparaat.data.nodes.length, 2);
+    assert.equal(pve.data.apparaat.data.nodes_online, 1);
+    assert.equal(pve.data.apparaat.data.vms.totaal, 2);
+    assert.equal(pve.data.apparaat.data.vms.aan, 1);
+    assert.equal(pve.data.apparaat.data.lxc.aan, 1);
+    assert.equal(pve.data.apparaat.data.versie, '8.2.4');
+    assert.equal(pve.data.apparaat.data.volle_opslag, 1, 'opslag boven 90% telt mee');
+    assert.equal(pve.data.apparaat.data.opslag[0].gebruikt_pct, 95);
+
+    const pveFout = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox fout', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'fout' } });
+    assert.equal(pveFout.data.apparaat.status, 'fout');
+    assert.match(pveFout.data.apparaat.fout, /geweigerd|401/);
 
     // Een verkeerd wachtwoord/key geeft een fout, geen crash.
     const stuk = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Stuk', soort: 'truenas', url: adres, geheim: 'fout' } });

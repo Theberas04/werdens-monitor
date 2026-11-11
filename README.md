@@ -172,7 +172,7 @@ Dat stopt de dienst, zet de autostart uit en verwijdert het systemd- en
 omgevingsbestand. De installatiemap met de database blijft staan; `ALLES=1`
 vooraf maakt ook die leeg. `DROOG=1` toont eerst wat er zou gebeuren.
 
-### UniFi en TrueNAS koppelen
+### UniFi, TrueNAS en Proxmox koppelen
 
 **Apparaten → Apparaat toevoegen**. Bij *UniFi-controller* vul je de URL van de
 controller in (`https://192.168.1.1` of met `:8443`) en een beheerdersaccount;
@@ -180,6 +180,26 @@ de monitor logt in en leest de apparaten, clients en de gezondheid per onderdeel
 Bij *TrueNAS* maak je in de webinterface een API-sleutel aan (Instellingen →
 API-sleutels) en vul je die als wachtwoord in. *HTTP/JSON* is voor alles met een
 JSON-endpoint: de scalars uit het antwoord komen als waarden op de detailpagina.
+
+Bij *Proxmox VE* gebruik je de API van de host zelf — geen agent nodig:
+
+1. In de Proxmox-webinterface: **Datacenter → Permissions → API Tokens → Add**.
+   Kies de gebruiker (bijvoorbeeld `root@pam`), geef het token een naam
+   (`monitor`) en laat *Privilege Separation* uit staan, anders ziet het token
+   alleen zijn eigen rechten.
+2. Kopieer het token-secret dat één keer verschijnt.
+3. In de monitor: **Apparaten → Apparaat toevoegen**, soort *Proxmox VE*, URL
+   `https://<proxmox-host>:8006`, gebruiker `root@pam!monitor` en als
+   wachtwoord/API-key het secret.
+
+De monitor leest dan de nodes met hun CPU-, RAM- en schijfbelasting en load, de
+VM's en containers met hun status, en de opslag per node. Een offline node of
+een opslag boven 90% maakt het apparaat `fout` en stuurt — als Slack aanstaat —
+een melding. Het zelfondertekende certificaat van Proxmox wordt geaccepteerd;
+het token gaat als `PVEAPIToken=gebruiker@realm!naam=secret` mee.
+
+Let op: poort 8006 moet vanaf de monitor bereikbaar zijn. Staat de monitor in een
+LXC op dezelfde host, gebruik dan het LAN-adres van de host (niet `localhost`).
 
 Wachtwoorden en sleutels staan in de database, niet in de repo; de API geeft ze
 nooit terug (wel of er een geheim is ingesteld).
