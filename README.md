@@ -116,7 +116,26 @@ Een rondleiding door de app: **[demo-video (42 s, 1440×900)](docs/video/werdens
 
 ## Installeren
 
-Eén regel op de Proxmox-host (Debian/Ubuntu). Ontbreekt Node 22.5 of is het
+### Als eigen LXC (aanbevolen op Proxmox)
+
+Dit maakt een aparte container aan met een eigen IP en installeert de monitor
+erin — dus niet als dienst op de Proxmox-host zelf. Draai dit als root op de
+host:
+
+```bash
+CTID=120 ADMIN_PASSWORD='kies-er-een' GITHUB_TOKEN='ghp_...' \
+  bash <(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/proxmox/maak-lxc.sh)
+```
+
+Zonder `CTID` pakt het script het eerste vrije nummer vanaf 120. Standaard
+dhcp; een vast adres geef je mee met `IP=192.168.1.130/24,gw=192.168.1.1`.
+`STORAGE`, `CORES`, `MEMORY`, `DISK` en `BRIDGE` zijn ook aan te passen.
+`DROOG=1` toont alleen wat er zou gebeuren. Het root-wachtwoord van de
+container wordt aan het eind geprint.
+
+### Op een bestaande Debian/Ubuntu-machine
+
+Eén regel op de Proxmox-host of een bestaande LXC (Debian/Ubuntu). Ontbreekt Node 22.5 of is het
 te oud, dan installeert het script Node 22 zelf via NodeSource. Een repo die
 niet bereikbaar is (bijv. de Proxmox-enterprise-repo zonder abonnement) houdt
 de installatie niet tegen: apt-fouten worden overgeslagen en er is een terugval
