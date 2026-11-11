@@ -123,7 +123,7 @@ de installatie niet tegen: apt-fouten worden overgeslagen en er is een terugval
 op de officiële Node-tarball:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/main/deploy/installeer.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/installeer.sh | bash
 ```
 
 Of met de hand:

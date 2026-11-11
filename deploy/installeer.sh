@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Werdens Monitor installeren of bijwerken op een Debian/Ubuntu-host of LXC.
 #
-#   curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/main/deploy/installeer.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/installeer.sh | bash
 #
 # Variabelen (vooraf zetten of als omgevingsvariabele meegeven):
 #   ADMIN_PASSWORD  verplicht bij een verse installatie
