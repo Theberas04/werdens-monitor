@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070b10">
+<title>Werdens Monitor</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="version" content="1.0.0">
+<style>
+:root{
+  --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
+  --line:#1c2a37; --line2:#273848;
+  --txt:#e8f0f8; --muted:#8aa0b6; --muted2:#63809a;
+  --accent:#2ee6a8; --accent-d:#0f8f68; --accent-soft:rgba(46,230,168,.12);
+  --amber:#f5b544; --amber-soft:rgba(245,181,68,.13);
+  --red:#ff5f6f; --red-soft:rgba(255,95,111,.13);
+  --blue:#63a9ff; --blue-soft:rgba(99,169,255,.12);
+  --paars:#b18cff;
+  --r:14px; --r-klein:9px; --hoogte:40px; --hoogte-klein:32px;
+  --schaduw:0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.9);
+  --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 520px at 82% -10%, rgba(46,230,168,.09), transparent 62%),
+    radial-gradient(800px 380px at 4% 0%, rgba(99,169,255,.07), transparent 58%),
+    var(--bg);
+  color:var(--txt); font-family:var(--font); font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; min-height:100vh;
+}
+body.uit{display:grid;place-items:center}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+button,input,select,textarea{font-family:inherit;font-size:15px;color:var(--txt)}
+button{cursor:pointer}
+::selection{background:rgba(46,230,168,.28)}
+
+/* ── login ── */
+#login{width:100%;max-width:392px;padding:24px}
+#login .merk{margin-bottom:22px}
+#login .kaart{padding:26px 24px}
+#login h1{font-size:20px;margin:0 0 4px}
+#login p.uitleg{color:var(--muted);margin:0 0 20px;font-size:14px}
+#login label{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted2);margin-bottom:7px;font-weight:600}
+#login input{width:100%;height:var(--hoogte)}
+#login .knop{width:100%;justify-content:center;margin-top:16px;height:44px}
+#login .fout{color:var(--red);font-size:13px;min-height:18px;margin-top:10px}
+.login-voet{color:var(--muted2);font-size:12px;margin-top:16px;text-align:center}
+
+/* ── shell ── */
+#app{display:none;max-width:1180px;margin:0 auto;padding:0 18px 64px}
+#app.aan{display:block}
+header.kop{
+  position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;
+  padding:16px 0 14px;background:linear-gradient(to bottom,var(--bg) 62%,rgba(7,11,16,.72) 100%);
+  backdrop-filter:blur(6px);
+}
+.merk{display:flex;align-items:center;gap:11px;min-width:0}
+.merk .logo{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;
+  background:linear-gradient(150deg,#123c30,#0e151d 70%);border:1px solid #1d4b3c;box-shadow:inset 0 1px 0 rgba(46,230,168,.25)}
+.merk .logo svg{width:20px;height:20px}
+.merk .naam{font-weight:700;font-size:16px;letter-spacing:-.01em;white-space:nowrap}
+.merk .sub{font-size:11.5px;color:var(--muted2);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+header.kop .rechts{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+.meting-tijd{font-size:12px;color:var(--muted2);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+nav.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line);padding-bottom:0;margin-bottom:20px}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs button{
+  display:flex;align-items:center;gap:8px;background:transparent;border:0;color:var(--muted);
+  padding:11px 14px 13px;font-size:14px;font-weight:600;border-bottom:2px solid transparent;white-space:nowrap;
+}
+nav.tabs button svg{width:17px;height:17px;flex:none}
+nav.tabs button:hover{color:var(--txt)}
+nav.tabs button.actief{color:var(--accent);border-bottom-color:var(--accent);background:linear-gradient(to top,rgba(46,230,168,.08),transparent)}
+nav.tabs .teller{font-size:11px;font-weight:700;padding:1px 6px;border-radius:20px;background:var(--pane3);color:var(--muted);border:1px solid var(--line2)}
+nav.tabs .teller.alarm{background:var(--red-soft);color:var(--red);border-color:rgba(255,95,111,.3)}
+
+/* ── cards & typography ── */
+.kaart{background:linear-gradient(180deg,rgba(255,255,255,.018),transparent 40%),var(--pane);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--schaduw)}
+.kaart + .kaart{margin-top:14px}
+.kaart-kop{display:flex;align-items:center;gap:10px;padding:15px 18px 12px;border-bottom:1px solid var(--line)}
+.kaart-kop h2{font-size:12px;margin:0;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.kaart-kop .rechts{margin-left:auto;display:flex;gap:8px;align-items:center}
+.kaart-body{padding:16px 18px}
+h3{font-size:15px;margin:0}
+p.leeg{color:var(--muted2);font-size:13.5px;margin:0}
+.raster{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
+.raster>*{min-width:0}
+@media(min-width:820px){.raster.twee{grid-template-columns:1.35fr 1fr}.raster.drie{grid-template-columns:repeat(3,1fr)}}
+
+/* ── KPI ── */
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+@media(min-width:760px){.kpis{grid-template-columns:repeat(4,1fr)}}
+.kpi{background:var(--pane);border:1px solid var(--line);border-radius:var(--r);padding:14px 15px;position:relative;overflow:hidden}
+.kpi:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--line2)}
+.kpi.goed:before{background:var(--accent)}.kpi.waarschuwing:before{background:var(--amber)}.kpi.fout:before{background:var(--red)}.kpi.info:before{background:var(--blue)}
+.kpi .label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted2);font-weight:700;display:flex;gap:6px;align-items:center}
+.kpi .waarde{font-size:27px;font-weight:700;line-height:1.15;margin-top:5px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.kpi .klein{font-size:12px;color:var(--muted);margin-top:2px}
+
+/* ── status ── */
+.stip{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:var(--muted2);box-shadow:0 0 0 3px rgba(255,255,255,.03)}
+.stip.ok{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.stip.neer{background:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+.stip.wacht{background:var(--amber);box-shadow:0 0 0 3px var(--amber-soft)}
+.stip.puls{animation:puls 2.4s ease-in-out infinite}
+@keyframes puls{0%,100%{opacity:1}50%{opacity:.45}}
+
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:20px;
+  background:var(--pane3);color:var(--muted);border:1px solid var(--line2);white-space:nowrap}
+.chip.groen{background:var(--accent-soft);color:var(--accent);border-color:rgba(46,230,168,.28)}
+.chip.rood{background:var(--red-soft);color:var(--red);border-color:rgba(255,95,111,.3)}
+.chip.amber{background:var(--amber-soft);color:var(--amber);border-color:rgba(245,181,68,.3)}
+.chip.blauw{background:var(--blue-soft);color:var(--blue);border-color:rgba(99,169,255,.3)}
+.chip.mono{font-family:var(--mono);font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+.chip.groot{font-size:13px;padding:3px 10px}
+
+/* ── lijsten ── */
+.rijen{display:flex;flex-direction:column}
+.rij{display:flex;align-items:center;gap:12px;padding:12px 18px;border-top:1px solid var(--line);color:inherit}
+.rij:first-child{border-top:0}
+.rij:hover{background:rgba(255,255,255,.022);text-decoration:none}
+.rij .groot{flex:1;min-width:0}
+.rij .naam{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;min-width:0}
+.rij .naam .tekst{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rij .onder{font-size:12.5px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rij .rechts{display:flex;align-items:center;gap:10px;flex:none;min-width:0;max-width:100%;font-variant-numeric:tabular-nums}
+
+/* ── sparkline ── */
+.spark{display:flex;gap:2px;align-items:flex-end;height:22px;flex:none}
+.spark i{width:3px;border-radius:1px;background:var(--accent);opacity:.85;display:block}
+.spark i.neer{background:var(--red);height:22px!important;opacity:1}
+.spark i.leeg{background:var(--line2);height:6px!important}
+
+/* ── knoppen ── */
+.knop{display:inline-flex;align-items:center;gap:7px;height:var(--hoogte);padding:0 14px;border-radius:10px;
+  border:1px solid var(--line2);background:var(--pane2);color:var(--txt);font-weight:600;font-size:13.5px;
+  white-space:nowrap;flex:none;transition:background .12s,border-color .12s,transform .06s}
+.knop:hover{background:var(--pane3);border-color:#39506a;text-decoration:none}
+.knop:active{transform:translateY(1px)}
+.knop svg{width:15px;height:15px}
+.knop.primair{background:linear-gradient(180deg,#25c895,#14a578);border-color:#2ee6a8;color:#04211a;font-weight:700}
+.knop.primair:hover{background:linear-gradient(180deg,#2ee6a8,#17b183)}
+.knop.stil{background:transparent;border-color:transparent;color:var(--muted)}
+.knop.stil:hover{background:var(--pane2);color:var(--txt)}
+.knop.gevaar{color:var(--red);border-color:rgba(255,95,111,.35);background:var(--red-soft)}
+.knop.klein{height:var(--hoogte-klein);font-size:12.5px;padding:0 10px;border-radius:8px}
+.knop[disabled]{opacity:.5;cursor:not-allowed}
+.knop.bezig{opacity:.75;pointer-events:none}
+
+/* ── formulieren ── */
+label.veld{display:block;margin-bottom:12px}
+label.veld span{display:block;font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted2);font-weight:700;margin-bottom:6px}
+input,select,textarea{width:100%;background:var(--pane2);border:1px solid var(--line2);border-radius:9px;padding:0 12px;height:var(--hoogte);outline:none}
+textarea{height:auto;min-height:96px;padding:10px 12px;resize:vertical;line-height:1.5;flex:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%238aa0b6' stroke-width='2'><path d='M3 5l4 4 4-4'/></svg>");background-repeat:no-repeat;background-position:right 11px center;padding-right:32px}
+.form-rij{display:grid;gap:12px}
+@media(min-width:700px){.form-rij.twee{grid-template-columns:1fr 1fr}.form-rij.drie{grid-template-columns:1fr 1fr 1fr}}
+.hint{font-size:12px;color:var(--muted2);margin:6px 0 0}
+.fout-tekst{color:var(--red);font-size:13px;margin-top:8px}
+
+/* ── details/uitklap ── */
+details.uitklap{border:1px solid var(--line);border-radius:var(--r);background:var(--pane);margin-bottom:16px}
+details.uitklap>summary{list-style:none;cursor:pointer;padding:13px 16px;display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;color:var(--muted)}
+details.uitklap>summary svg{width:17px;height:17px;flex:none}
+details.uitklap>summary::-webkit-details-marker{display:none}
+details.uitklap>summary:hover{color:var(--txt)}
+details.uitklap>summary .plus{margin-left:auto;color:var(--muted2);font-size:18px;line-height:1}
+details.uitklap[open]>summary{border-bottom:1px solid var(--line);color:var(--txt)}
+details.uitklap .binnen{padding:16px}
+
+/* ── projecten ── */
+.project-grid{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:700px){.project-grid{grid-template-columns:1fr 1fr}}
+.proj{padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.proj .top{display:flex;align-items:center;gap:8px;min-width:0}
+.proj .top .naam{font-weight:650;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj .top .rechts{margin-left:auto;display:flex;gap:6px;flex:none}
+.proj .beschr{font-size:12.5px;color:var(--muted);margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:0}
+.proj .voet{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted2);border-top:1px solid var(--line);padding-top:9px;margin-top:2px}
+.proj .voet .sha{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.proj .voet .spacer{margin-left:auto}
+.zoek{display:flex;gap:8px;margin-bottom:14px;align-items:center}
+.zoek input{flex:1}
+@media(min-width:760px){.zoek input{max-width:340px}}
+
+/* ── tickets ── */
+.ticket-rij{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start;cursor:pointer}
+.ticket-rij:first-child{border-top:0}
+.ticket-rij:hover{background:rgba(255,255,255,.022)}
+.ticket-rij .prio{width:3px;align-self:stretch;border-radius:2px;background:var(--muted2);flex:none}
+.ticket-rij .prio.kritiek{background:var(--red)}.ticket-rij .prio.hoog{background:var(--amber)}.ticket-rij .prio.normaal{background:var(--blue)}.ticket-rij .prio.laag{background:var(--line2)}
+.ticket-rij .midden{flex:1;min-width:0}
+.ticket-rij .titel{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ticket-rij .meta{font-size:12px;color:var(--muted2);display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px}
+.ticket-rij .meta .mono{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.ticket-kop{display:flex;flex-direction:column;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.ticket-kop h2{font-size:19px;margin:0;letter-spacing:-.01em}
+.ticket-kop .sub{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--muted2)}
+.berichten{display:flex;flex-direction:column;gap:10px;margin:4px 0 16px}
+.bericht{border:1px solid var(--line);border-radius:11px;padding:11px 13px;background:var(--pane2);max-width:min(680px,94%)}
+.bericht.agent{border-color:rgba(99,169,255,.28);background:var(--blue-soft);margin-left:auto}
+.bericht .kop{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted2);margin-bottom:5px}
+.bericht .kop b{color:var(--txt);font-size:12px}
+.bericht .tekst{white-space:pre-wrap;font-size:13.5px;line-height:1.55;overflow-wrap:anywhere}
+.context-blok{background:var(--pane2);border:1px solid var(--line);border-radius:11px;padding:12px 14px;font-size:12.5px}
+.context-blok h4{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted2)}
+.context-blok ul{margin:0;padding-left:16px;color:var(--muted)}
+.context-blok li{margin:3px 0}
+.poorten{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+
+/* ── toast ── */
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);z-index:60;background:#0d241d;border:1px solid rgba(46,230,168,.4);
+  color:var(--accent);padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:.2s;max-width:88vw;text-align:center}
+#toast.aan{opacity:1;transform:translate(-50%,0)}
+#toast.fout{background:#2a1015;border-color:rgba(255,95,111,.45);color:var(--red)}
+
+/* ── modal ── */
+#modal{position:fixed;inset:0;background:rgba(3,6,9,.72);backdrop-filter:blur(3px);display:none;z-index:50;align-items:center;justify-content:center;padding:16px}
+#modal.aan{display:flex}
+#modal .kaart{max-width:460px;width:100%;max-height:88vh;overflow:auto;padding:20px}
+
+/* ── tabel ── */
+.tabel{width:100%;border-collapse:collapse;font-size:12.5px}
+.tabel th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted2);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tabel td{padding:7px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
+.tabel tr:last-child td{border-bottom:0}
+.tabel td.ok{color:var(--accent)}.tabel td.neer{color:var(--red)}
+
+/* ── details stats ── */
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:600px){.stat-grid{grid-template-columns:repeat(4,1fr)}}
+.stat{background:var(--pane2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat .k{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted2);font-weight:700}
+.stat .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:1px}
+.stat .v.klein{font-size:14px}
+
+/* ── mobiel ── */
+@media(max-width:760px){
+  #app{padding:0 12px 80px}
+  header.kop{padding:12px 0 10px;gap:10px}
+  .merk .sub{display:none}
+  .merk .naam{font-size:15px}
+  .meting-tijd{display:none}
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(5,1fr);gap:0;
+    background:rgba(9,14,20,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line);border-bottom:0;
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));margin:0}
+  nav.tabs button{flex-direction:column;gap:3px;padding:6px 2px 4px;font-size:10.5px;min-height:46px;border-bottom:0;border-radius:9px;justify-content:center;overflow:hidden}
+  nav.tabs button svg{width:19px;height:19px}
+  nav.tabs button.actief{background:var(--accent-soft)}
+  nav.tabs .navfull{display:none}
+  .rij{padding:11px 14px;flex-wrap:wrap;row-gap:3px}
+  .rij .groot{flex:1 1 calc(100% - 26px)}
+  .rij .rechts{gap:7px;flex:1 1 100%;justify-content:flex-start;padding-left:26px;flex-wrap:wrap}
+  .rij .onder{white-space:normal;overflow:visible}
+  .kaart-body{padding:14px}
+  .kaart-kop{padding:13px 14px 11px}
+  .knop{height:38px;font-size:13px}
+  .spark{display:none}
+  .project-grid{grid-template-columns:1fr}
+}
+@media(min-width:761px){nav.tabs .navkort{display:none}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body class="uit">
+
+<section id="login" hidden>
+  <div class="merk">
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#2ee6a8" stroke-width="2" stroke-linecap="round"><path d="M3 18v-5M8 18V9M13 18V6M18 18v-8M23 18V4"/></svg></span>
+    <div><div class="naam">Werdens Monitor</div><div class="sub">Werdens Media</div></div>
+  </div>
+  <div class="kaart" style="padding:24px">
+    <h1>Inloggen</h1>
+    <p class="uitleg">Beheerderstoegang tot het infra- en websitedashboard.</p>
+    <form id="loginform">
+      <label for="ww">Wachtwoord</label>
+      <input id="ww" type="password" autocomplete="current-password" required>
+      <button class="knop primair" type="submit">Inloggen</button>
+      <div class="fout" id="login-fout"></div>
+    </form>
+  </div>
+  <div class="login-voet">Werdens Media · eigen beheer</div>
+</section>
+
+<div id="app">
+  <header class="kop">
+    <div class="merk">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#2ee6a8" stroke-width="2" stroke-linecap="round"><path d="M3 18v-5M8 18V9M13 18V6M18 18v-8M23 18V4"/></svg></span>
+      <div>
+        <div class="naam">Werdens Monitor</div>
+        <div class="sub">Werdens Media · infrastructuur</div>
+      </div>
+    </div>
+    <div class="rechts">
+      <span class="meting-tijd" id="meting-tijd"></span>
+      <button class="knop stil klein" id="vernieuw" title="Alles verversen">Verversen</button>
+      <button class="knop stil klein" id="uitloggen" title="Uitloggen">Uit</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="overzicht" class="actief">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      <span class="navfull">Overzicht</span><span class="navkort">Start</span>
+    </button>
+    <button data-tab="projecten">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+      <span class="navfull">Projecten</span><span class="navkort">Repos</span><span class="teller" id="tab-projecten"></span>
+    </button>
+    <button data-tab="websites">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>
+      <span class="navfull">Websites</span><span class="navkort">Sites</span><span class="teller" id="tab-sites"></span>
+    </button>
+    <button data-tab="tickets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 000 4v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a2 2 0 000-4z"/><path d="M12 6v2M12 11v2M12 16v2"/></svg>
+      <span class="navfull">Tickets</span><span class="navkort">Tickets</span><span class="teller" id="tab-tickets"></span>
+    </button>
+    <button data-tab="instellingen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+      <span class="navfull">Instellingen</span><span class="navkort">Beheer</span>
+    </button>
+  </nav>
+
+  <main id="beeld"></main>
+</div>
+
+<div id="toast"></div>
+<div id="modal"><div class="kaart" id="modal-inhoud"></div></div>
+
+<script>
+'use strict';
+// ── helpers ──────────────────────────────────────────────────────────────────
+const $ = (s, el = document) => el.querySelector(s);
+const beeld = $('#beeld');
+const nlGetal = (w) => Number.isFinite(Number(w)) ? String(Number(w)).replace('.', ',') : String(w ?? '');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// "2.4.0" wordt "v2.4.0"; "commit abc123" blijft zoals het is.
+const versieLabel = (v) => { const t = String(v || '').trim(); if (!t) return ''; return /^\d/.test(t) ? 'v' + t : t; };
+
+function datum(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('nl-NL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function geleden(iso) {
+  if (!iso) return 'nooit';
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (!Number.isFinite(s)) return '—';
+  if (s < 45) return 'net nu';
+  if (s < 3600) return Math.round(s / 60) + ' min geleden';
+  if (s < 86400) return Math.round(s / 3600) + ' uur geleden';
+  return Math.round(s / 86400) + ' dagen geleden';
+}
+function toast(tekst, isFout = false) {
+  const t = $('#toast');
+  t.textContent = tekst;
+  t.className = 'aan' + (isFout ? ' fout' : '');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.className = isFout ? 'fout' : ''; }, 3200);
+}
+async function api(pad, opties = {}) {
+  const o = { headers: { 'content-type': 'application/json' }, ...opties };
+  if (o.lichaam !== undefined) { o.body = JSON.stringify(o.lichaam); delete o.lichaam; }
+  const res = await fetch(pad, o);
+  if (res.status === 401 && pad !== '/api/login') { toonLogin(); throw new Error('Niet ingelogd'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.fout || ('Fout ' + res.status));
+  return data;
+}
+const ico = {
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  extern: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h4"/></svg>',
+  terug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>',
+  span: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 11-2.3-5.6M20 4v5h-5"/></svg>',
+  fles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M9 3h6v3l2 3v11a1 1 0 01-1 1H8a1 1 0 01-1-1V9l2-3z"/></svg>',
+};
+function leeg(tekst) { return '<p class="leeg" style="padding:18px">' + esc(tekst) + '</p>'; }
+function chip(tekst, kleur = '') { return '<span class="chip ' + kleur + '">' + esc(tekst) + '</span>'; }
+
+function spark(historie) {
+  if (!historie || !historie.length) return '<div class="spark"><i class="leeg"></i></div>';
+  const laatste = historie.slice(-26);
+  return '<div class="spark" title="Laatste metingen">' + laatste.map((c) => {
+    const h = c.ok ? Math.max(5, Math.min(22, Math.round(22 - Math.min(2000, c.ms || 100) / 130))) : 22;
+    return '<i class="' + (c.ok ? '' : 'neer') + '" style="height:' + h + 'px"></i>';
+  }).join('') + '</div>';
+}
+function statusVan(site) {
+  if (!site.actief) return { klasse: '', tekst: 'uit' };
+  if (!site.laatste) return { klasse: 'wacht', tekst: 'wacht op meting' };
+  return site.laatste.ok ? { klasse: 'ok', tekst: 'online' } : { klasse: 'neer', tekst: 'storing' };
+}
+
+// ── inloggen ─────────────────────────────────────────────────────────────────
+function toonLogin() {
+  $('#login').hidden = false;
+  document.body.classList.add('uit');
+  $('#app').classList.remove('aan');
+  setTimeout(() => { const w = $('#ww'); if (w) w.focus(); }, 60);
+}
+async function start() {
+  try {
+    const ik = await api('/api/ik');
+    $('#login').hidden = true;
+    document.body.classList.remove('uit');
+    $('#app').classList.add('aan');
+    laadOverzicht();
+  } catch (e) { toonLogin(); }
+}
+$('#loginform').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const knop = e.target.querySelector('button');
+  knop.classList.add('bezig');
+  $('#login-fout').textContent = '';
+  try {
+    await api('/api/login', { method: 'POST', lichaam: { wachtwoord: $('#ww').value } });
+    $('#ww').value = '';
+    start();
+  } catch (err) {
+    $('#login-fout').textContent = err.message;
+  } finally { knop.classList.remove('bezig'); }
+});
+$('#uitloggen').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); } catch {} toonLogin(); });
+$('#vernieuw').addEventListener('click', () => laadHuidig(true));
+
+// ── navigatie ────────────────────────────────────────────────────────────────
+let huidigeTab = 'overzicht';
+let siteDetail = null;
+let ticketDetail = null;
+const laders = {};
+
+$('#tabs').addEventListener('click', (e) => {
+  const knop = e.target.closest('button[data-tab]');
+  if (!knop) return;
+  huidigeTab = knop.dataset.tab;
+  siteDetail = null;
+  ticketDetail = null;
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b === knop));
+  laadHuidig();
+});
+function laadHuidig(metKracht = false) {
+  if (huidigeTab === 'overzicht') laadOverzicht();
+  else if (huidigeTab === 'projecten') laadProjecten(metKracht);
+  else if (huidigeTab === 'websites') siteDetail ? laadSiteDetail(siteDetail) : laadSites();
+  else if (huidigeTab === 'tickets') ticketDetail ? laadTicketDetail(ticketDetail) : laadTickets();
+  else laadInstellingen();
+}
+function zetTeller(id, aantal, alarm = false) {
+  const el = $('#' + id);
+  if (!el) return;
+  el.textContent = aantal > 0 ? aantal : '';
+  el.className = 'teller' + (alarm ? ' alarm' : '');
+}
+
+// ── overzicht ────────────────────────────────────────────────────────────────
+async function laadOverzicht() {
+  try {
+    const d = await api('/api/overzicht');
+    const s = d.samenvatting;
+    zetTeller('tab-projecten', s.projecten);
+    zetTeller('tab-sites', s.sites);
+    zetTeller('tab-tickets', s.tickets_open, s.tickets_open > 0);
+    $('#meting-tijd').textContent = s.laatste_meting ? 'Laatste meting ' + geleden(s.laatste_meting) : '';
+    const sitesHtml = d.sites.length ? d.sites.map((site) => {
+      const st = statusVan(site);
+      const l = site.laatste || {};
+      return '<a class="rij" href="#" data-site="' + site.id + '">'
+        + '<span class="stip ' + st.klasse + (st.klasse === 'neer' ? ' puls' : '') + '"></span>'
+        + '<div class="groot"><div class="naam"><span class="tekst">' + esc(site.naam) + '</span>'
+        + (st.klasse === 'neer' ? chip('storing', 'rood') : '')
+        + '</div><div class="onder">' + esc(site.url.replace(/^https?:\/\//, '').replace(/\/$/, '')) + ' · ' + geleden(l.op) + '</div></div>'
+        + spark(site.geschiedenis)
+        + '<div class="rechts">'
+        + (l.versie ? '<span class="chip mono">' + esc(versieLabel(l.versie)) + '</span>' : '')
+        + (l.ms != null ? '<span style="font-size:12px;color:var(--muted2);min-width:46px;text-align:right">' + nlGetal(l.ms) + ' ms</span>' : '')
+        + '</div></a>';
+    }).join('') : leeg('Nog geen websites toegevoegd.');
+    const ticketsHtml = d.tickets.length ? d.tickets.map((t) =>
+      '<div class="ticket-rij" data-ticket="' + t.id + '"><span class="prio ' + esc(t.prioriteit) + '"></span>'
+      + '<div class="midden"><div class="titel">' + esc(t.titel) + '</div>'
+      + '<div class="meta">' + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '') + chip(t.status, t.status === 'open' ? 'amber' : 'blauw') + '<span>' + geleden(t.aangemaakt) + '</span></div></div></div>').join('')
+      : leeg('Geen openstaande tickets.');
+    const projHtml = d.projecten.length ? d.projecten.map((p) => {
+      const ci = p.ci_status === 'success' ? chip('CI ok', 'groen') : p.ci_status === 'failure' ? chip('CI faalt', 'rood')
+        : p.ci_status ? chip(p.ci_status, 'amber') : '';
+      return '<a class="rij" href="' + esc(p.url) + '" target="_blank" rel="noopener">'
+        + '<div class="groot"><div class="naam"><span class="tekst">' + esc(p.naam) + '</span>' + (p.zichtbaarheid === 'privé' ? chip('privé') : '') + '</div>'
+        + '<div class="onder">' + esc(p.commit_bericht || p.beschrijving || '') + '</div></div>'
+        + '<div class="rechts">' + ci + (p.versie ? '<span class="chip mono">' + esc(p.versie) + '</span>' : '') + '</div></a>';
+    }).join('') : leeg('Nog geen projecten opgehaald.');
+
+    beeld.innerHTML =
+      '<div class="kpis">'
+      + kpi('Sites online', s.sites_ok + '/' + s.sites, s.sites_neer ? s.sites_neer + ' met storing' : 'alles bereikbaar', s.sites_neer ? 'waarschuwing' : 'goed')
+      + kpi('Projecten', s.projecten, s.projecten_actief + ' deze week gewijzigd', 'info')
+      + kpi('Open tickets', s.tickets_open, s.tickets_kritiek ? s.tickets_kritiek + ' kritiek' : 'geen kritieke', s.tickets_kritiek ? 'fout' : (s.tickets_open ? 'waarschuwing' : 'goed'))
+      + kpi('CI-fouten', s.projecten_ci_fout, s.projecten_ci_fout ? 'laatste workflow faalt' : 'alle workflows groen', s.projecten_ci_fout ? 'fout' : 'goed')
+      + '</div>'
+      + (s.sites_neer ? '<div class="kaart" style="margin-bottom:14px;border-color:rgba(255,95,111,.35);background:linear-gradient(90deg,var(--red-soft),transparent 60%)"><div class="kaart-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="stip neer puls"></span><b style="font-size:14px">' + d.sites.filter((x) => x.actief && (!x.laatste || !x.laatste.ok)).map((x) => esc(x.naam)).join(', ') + '</b><span style="color:var(--muted);font-size:13px">reageert niet — bekijk de details bij Websites</span></div></div>' : '')
+      + '<div class="raster twee" style="margin-bottom:14px">'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Websites</h2><div class="rechts"><button class="knop klein" data-ga="websites">Alles</button></div></div><div class="rijen">' + sitesHtml + '</div></div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Open tickets</h2><div class="rechts"><button class="knop klein" data-ga="tickets">Nieuw</button></div></div><div>' + ticketsHtml + '</div></div>'
+      + '</div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>GitHub-projecten</h2><div class="rechts"><button class="knop klein" data-ga="projecten">Alle ' + s.projecten + '</button></div></div><div class="rijen">' + projHtml + '</div></div>';
+    koppelOverzicht();
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+function kpi(label, waarde, klein, kleur) {
+  return '<div class="kpi ' + kleur + '"><div class="label">' + esc(label) + '</div><div class="waarde">' + esc(String(waarde)) + '</div><div class="klein">' + esc(klein) + '</div></div>';
+}
+function koppelOverzicht() {
+  beeld.querySelectorAll('[data-site]').forEach((el) => el.addEventListener('click', (e) => {
+    e.preventDefault();
+    siteDetail = el.dataset.site;
+    huidigeTab = 'websites';
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b.dataset.tab === 'websites'));
+    laadSiteDetail(siteDetail);
+  }));
+  beeld.querySelectorAll('[data-ticket]').forEach((el) => el.addEventListener('click', () => {
+    ticketDetail = el.dataset.ticket;
+    huidigeTab = 'tickets';
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b.dataset.tab === 'tickets'));
+    laadTicketDetail(ticketDetail);
+  }));
+  beeld.querySelectorAll('[data-ga]').forEach((el) => el.addEventListener('click', () => {
+    huidigeTab = el.dataset.ga;
+    siteDetail = null; ticketDetail = null;
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('actief', b.dataset.tab === huidigeTab));
+    laadHuidig();
+  }));
+}
+
+// ── projecten ────────────────────────────────────────────────────────────────
+let projectenCache = [];
+let projectFilter = 'alle';
+let projectZoek = '';
+async function laadProjecten(metKracht = false) {
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Projecten ophalen…</p></div></div>';
+  try {
+    const d = metKracht
+      ? await api('/api/projecten/verversen', { method: 'POST' })
+      : await api('/api/projecten');
+    projectenCache = d.projecten;
+    zetTeller('tab-projecten', projectenCache.length);
+    renderProjecten(d);
+  } catch (e) {
+    beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p>'
+      + '<p class="hint">Zet een GitHub-token in de omgeving (GITHUB_TOKEN) of log in met gh op de server.</p></div></div>';
+  }
+}
+function renderProjecten(d) {
+  const filters = ['alle', 'publiek', 'privé', 'CI-fout'];
+  const zichtbaar = projectenCache.filter((p) => projectFilter === 'alle' ? true
+    : projectFilter === 'CI-fout' ? p.ci_status === 'failure'
+    : p.zichtbaarheid === projectFilter)
+    .filter((p) => !projectZoek || (p.naam + ' ' + p.beschrijving + ' ' + p.taal).toLowerCase().includes(projectZoek.toLowerCase()));
+  const kaarten = zichtbaar.map((p) => {
+    const ciKlasse = p.ci_status === 'success' ? 'groen' : p.ci_status === 'failure' ? 'rood' : p.ci_status ? 'amber' : '';
+    const ciTekst = p.ci_status === 'success' ? 'CI groen' : p.ci_status === 'failure' ? 'CI faalt' : p.ci_status ? p.ci_status : 'geen CI';
+    return '<div class="kaart proj">'
+      + '<div class="top"><span class="stip ' + (p.ci_status === 'failure' ? 'neer' : p.ci_status === 'success' ? 'ok' : 'wacht') + '"></span>'
+      + '<span class="naam">' + esc(p.naam) + '</span>'
+      + '<span class="rechts">' + (p.zichtbaarheid === 'privé' ? chip('privé') : chip('publiek', 'blauw')) + '</span></div>'
+      + '<p class="beschr">' + esc(p.beschrijving || 'Geen omschrijving') + '</p>'
+      + '<div class="voet">'
+      + (p.versie ? '<span class="chip mono">' + esc(p.versie) + '</span>' : '')
+      + '<span class="chip ' + ciKlasse + '">' + esc(ciTekst) + '</span>'
+      + (p.taal ? '<span>' + esc(p.taal) + '</span>' : '')
+      + (p.issues ? '<span>' + p.issues + ' issue' + (p.issues === 1 ? '' : 's') + '</span>' : '')
+      + '<span class="spacer"></span>'
+      + '<span class="sha" title="' + esc(p.commit_bericht) + '">' + esc(p.commit_sha || '') + '</span>'
+      + '<a class="knop klein stil" href="' + esc(p.url) + '" target="_blank" rel="noopener" title="Open op GitHub">' + ico.extern + '</a>'
+      + '</div></div>';
+  }).join('');
+  beeld.innerHTML =
+    '<div class="zoek"><input id="pzoek" placeholder="Zoek in projecten…" value="' + esc(projectZoek) + '">'
+    + '<button class="knop" id="pververs">' + ico.span + 'Verversen</button></div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'
+    + filters.map((f) => '<button class="knop klein ' + (projectFilter === f ? 'primair' : '') + '" data-filter="' + f + '">' + f + '</button>').join('')
+    + '</div>'
+    + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-body" style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)">'
+    + '<span><b style="color:var(--txt)">' + projectenCache.length + '</b> projecten</span>'
+    + '<span><b style="color:var(--txt)">' + projectenCache.filter((p) => p.zichtbaarheid === 'publiek').length + '</b> publiek</span>'
+    + '<span><b style="color:var(--txt)">' + projectenCache.filter((p) => p.ci_status === 'failure').length + '</b> CI-fouten</span>'
+    + '<span style="margin-left:auto">Opgehaald ' + geleden(d.op) + '</span></div></div>'
+    + (d.fout ? '<div class="kaart" style="border-color:rgba(255,95,111,.35);margin-bottom:14px"><div class="kaart-body"><p class="fout-tekst">' + esc(d.fout) + '</p></div></div>' : '')
+    + (zichtbaar.length ? '<div class="project-grid">' + kaarten + '</div>' : '<div class="kaart">' + leeg('Geen projecten in deze selectie.') + '</div>');
+  $('#pzoek').addEventListener('input', (e) => { projectZoek = e.target.value; renderProjecten(d); $('#pzoek').focus(); });
+  $('#pververs').addEventListener('click', () => laadProjecten(true));
+  beeld.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => { projectFilter = b.dataset.filter; renderProjecten(d); }));
+}
+
+// ── websites ─────────────────────────────────────────────────────────────────
+async function laadSites() {
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Websites laden…</p></div></div>';
+  try {
+    const d = await api('/api/sites');
+    zetTeller('tab-sites', d.sites.length);
+    const rijen = d.sites.map((site) => {
+      const st = statusVan(site);
+      const l = site.laatste || {};
+      const stats = site.stats || {};
+      const detail = [];
+      if (l.versie) detail.push('<span class="chip mono">' + esc(versieLabel(l.versie)) + '</span>');
+      if (l.code) detail.push('<span class="chip ' + (l.ok ? 'groen' : 'rood') + '">HTTP ' + l.code + '</span>');
+      if (l.ms != null) detail.push('<span style="color:var(--muted2)">' + nlGetal(l.ms) + ' ms</span>');
+      if (l.tls_dagen != null) detail.push('<span style="color:' + (l.tls_dagen < 20 ? 'var(--amber)' : 'var(--muted2)') + '">TLS ' + l.tls_dagen + ' d</span>');
+      if (site.uptime24 != null) detail.push('<span style="color:var(--muted2)">' + nlGetal(site.uptime24) + '% 24u</span>');
+      return '<a class="rij" href="#" data-site="' + site.id + '">'
+        + '<span class="stip ' + st.klasse + '"></span>'
+        + '<div class="groot"><div class="naam"><span class="tekst">' + esc(site.naam) + '</span>'
+        + (stats.gebruikers ? chip(stats.gebruikers + ' gebruikers') : '')
+        + (stats.bestanden ? chip(stats.bestanden + ' bestanden') : '')
+        + '</div><div class="onder">' + esc(site.url) + '</div>'
+        + '<div class="meta" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:5px;font-size:12px">' + detail.join(' ') + '</div></div>'
+        + '<div class="rechts"><span style="font-size:12px;color:var(--muted2)" class="alleen-breed">' + geleden(l.op) + '</span></div></a>';
+    }).join('');
+    beeld.innerHTML =
+      '<details class="uitklap"><summary>' + ico.plus + ' Website toevoegen<span class="plus">+</span></summary><div class="binnen">'
+      + '<form id="siteform" class="form-rij">'
+      + '<div class="form-rij twee"><label class="veld"><span>Naam</span><input name="naam" required placeholder="Bijv. AkkoordKast"></label>'
+      + '<label class="veld"><span>Adres</span><input name="url" required placeholder="http://192.168.1.24/"></label></div>'
+      + '<div class="form-rij drie"><label class="veld"><span>IP (voor tickets)</span><input name="ip" placeholder="192.168.1.24"></label>'
+      + '<label class="veld"><span>GitHub-repo</span><input name="repo" placeholder="akkoordkast"></label>'
+      + '<label class="veld"><span>Interval (seconden)</span><input name="interval_s" type="number" min="30" value="60"></label></div>'
+      + '<label class="veld"><span>Stats-adres (optioneel)</span><input name="stats_url" placeholder="http://192.168.1.24/api/stats"></label>'
+      + '<p class="hint">Een stats-adres levert gebruikers, bestanden en databasegrootte; zie de README voor het contract.</p>'
+      + '<button class="knop primair" type="submit">' + ico.plus + 'Toevoegen</button></form></div></details>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Websites</h2><div class="rechts">'
+      + '<button class="knop klein" id="alles-control">Alles controleren</button></div></div><div class="rijen">'
+      + (rijen || leeg('Nog geen websites. Voeg je eerste site toe.')) + '</div></div>'
+      + '<p class="hint">Klik op een site voor versie, uptime, gebruikscijfers en de laatste metingen.</p>';
+    beeld.querySelectorAll('[data-site]').forEach((el) => el.addEventListener('click', (e) => {
+      e.preventDefault(); siteDetail = el.dataset.site; laadSiteDetail(siteDetail);
+    }));
+    $('#siteform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const lichaam = Object.fromEntries(f.entries());
+      try {
+        await api('/api/sites', { method: 'POST', lichaam });
+        toast('Website toegevoegd');
+        laadSites();
+      } catch (err) { toast(err.message, true); }
+    });
+    $('#alles-control').addEventListener('click', async () => {
+      const knop = $('#alles-control');
+      knop.classList.add('bezig'); knop.textContent = 'Bezig…';
+      for (const s of d.sites) { try { await api('/api/sites/' + s.id + '/controleer', { method: 'POST' }); } catch {} }
+      toast('Alle sites gecontroleerd');
+      laadSites();
+    });
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+async function laadSiteDetail(id) {
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Site laden…</p></div></div>';
+  try {
+    const d = await api('/api/sites/' + id);
+    const site = d.site;
+    const st = statusVan(site);
+    const l = site.laatste || {};
+    const stats = site.stats || {};
+    const statLabels = { gebruikers: 'Gebruikers', bestanden: 'Bestanden', database_mb: 'Database (MB)', schijf_mb: 'Schijf (MB)', versie: 'Versie', omgeving: 'Omgeving', gestart: 'Gestart', laatste_backup: 'Laatste back-up' };
+    const statsHtml = Object.keys(stats).length
+      ? '<div class="stat-grid">' + Object.entries(stats).map(([k, v]) =>
+        '<div class="stat"><div class="k">' + esc(statLabels[k] || k) + '</div><div class="v' + (String(v).length > 8 ? ' klein' : '') + '">' + esc(k.endsWith('_mb') ? nlGetal(v) : v) + '</div></div>').join('') + '</div>'
+      : '<p class="leeg">Deze site publiceert nog geen gebruikscijfers. Zet een stats-adres bij de site (bijv. <code>/api/stats</code>) dat JSON teruggeeft met <code>gebruikers</code>, <code>bestanden</code> en <code>database_mb</code>.</p>';
+    const controles = (d.controles || []).slice(0, 30).map((c) =>
+      '<tr><td>' + datum(c.op) + '</td><td class="' + (c.ok ? 'ok' : 'neer') + '">' + (c.ok ? 'online' : 'storing') + '</td>'
+      + '<td>' + (c.code || '—') + '</td><td>' + (c.ms != null ? nlGetal(c.ms) + ' ms' : '—') + '</td>'
+      + '<td>' + esc(c.versie || '—') + '</td><td style="color:var(--muted2)">' + esc(c.fout || '') + '</td></tr>').join('');
+    beeld.innerHTML =
+      '<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
+      + '<button class="knop klein stil" id="terug">' + ico.terug + 'Websites</button>'
+      + '<span style="margin-left:auto"></span>'
+      + '<button class="knop klein" id="nu-control">' + ico.span + 'Nu controleren</button>'
+      + '<button class="knop klein gevaar" id="verwijder">Verwijderen</button></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-body">'
+      + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="stip ' + st.klasse + '"></span>'
+      + '<h2 style="font-size:21px;margin:0">' + esc(site.naam) + '</h2>' + chip(st.tekst, st.klasse === 'ok' ? 'groen' : st.klasse === 'neer' ? 'rood' : 'amber')
+      + (l.versie ? '<span class="chip mono groot">' + esc(versieLabel(l.versie)) + '</span>' : '') + '</div>'
+      + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--muted)">'
+      + '<a href="' + esc(site.url) + '" target="_blank" rel="noopener">' + esc(site.url) + '</a>'
+      + (site.ip ? '<span>IP <b style="color:var(--txt)">' + esc(site.ip) + '</b></span>' : '')
+      + (site.repo ? '<a href="https://github.com/Theberas04/' + esc(site.repo) + '" target="_blank" rel="noopener">repo ' + esc(site.repo) + '</a>' : '')
+      + '<span>interval ' + site.interval_s + ' s</span></div>'
+      + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:13px">'
+      + '<span>Status <b>' + esc(l.code || '—') + '</b></span>'
+      + '<span>Reactie <b>' + (l.ms != null ? nlGetal(l.ms) + ' ms' : '—') + '</b></span>'
+      + '<span>Uptime 24u <b>' + (site.uptime24 != null ? nlGetal(site.uptime24) + '%' : '—') + '</b></span>'
+      + '<span>TLS <b>' + (l.tls_dagen != null ? l.tls_dagen + ' dagen' : '—') + '</b></span>'
+      + '<span>Laatste meting <b>' + geleden(l.op) + '</b></span></div>'
+      + (l.fout ? '<p class="fout-tekst" style="margin-top:10px">' + esc(l.fout) + '</p>' : '')
+      + '</div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Gebruik en bestanden</h2>'
+      + (site.stats_op ? '<div class="rechts"><span style="font-size:12px;color:var(--muted2)">bijgewerkt ' + geleden(site.stats_op) + '</span></div>' : '') + '</div>'
+      + '<div class="kaart-body">' + statsHtml + '</div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Metingen</h2></div><div class="kaart-body" style="overflow-x:auto">'
+      + (controles ? '<table class="tabel"><thead><tr><th>Tijd</th><th>Status</th><th>Code</th><th>Reactie</th><th>Versie</th><th>Melding</th></tr></thead><tbody>' + controles + '</tbody></table>' : '<p class="leeg">Nog geen metingen.</p>')
+      + '</div></div>'
+      + '<details class="uitklap"><summary>Site aanpassen<span class="plus">+</span></summary><div class="binnen">'
+      + '<form id="wijzigform" class="form-rij">'
+      + '<div class="form-rij twee"><label class="veld"><span>Naam</span><input name="naam" value="' + esc(site.naam) + '"></label>'
+      + '<label class="veld"><span>Adres</span><input name="url" value="' + esc(site.url) + '"></label></div>'
+      + '<div class="form-rij drie"><label class="veld"><span>IP</span><input name="ip" value="' + esc(site.ip) + '"></label>'
+      + '<label class="veld"><span>Repo</span><input name="repo" value="' + esc(site.repo) + '"></label>'
+      + '<label class="veld"><span>Interval (s)</span><input name="interval_s" type="number" min="30" value="' + site.interval_s + '"></label></div>'
+      + '<label class="veld"><span>Stats-adres</span><input name="stats_url" value="' + esc(site.stats_url) + '"></label>'
+      + '<div style="display:flex;gap:10px;align-items:center"><button class="knop primair" type="submit">Opslaan</button>'
+      + '<label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)"><input type="checkbox" name="actief" ' + (site.actief ? 'checked' : '') + ' style="width:auto;height:auto"> meten</label></div>'
+      + '</form></div></details>';
+    $('#terug').addEventListener('click', () => { siteDetail = null; laadSites(); });
+    $('#nu-control').addEventListener('click', async (e) => {
+      e.target.classList.add('bezig');
+      try { await api('/api/sites/' + id + '/controleer', { method: 'POST' }); toast('Meting uitgevoerd'); laadSiteDetail(id); }
+      catch (err) { toast(err.message, true); e.target.classList.remove('bezig'); }
+    });
+    $('#verwijder').addEventListener('click', () => {
+      bevestig('Site verwijderen', 'Weet je zeker dat je ' + site.naam + ' en alle metingen wilt verwijderen?', async () => {
+        await api('/api/sites/' + id, { method: 'DELETE' }); toast('Site verwijderd'); siteDetail = null; laadSites();
+      });
+    });
+    $('#wijzigform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const lichaam = Object.fromEntries(new FormData(e.target).entries());
+      lichaam.actief = e.target.querySelector('[name=actief]').checked;
+      try { await api('/api/sites/' + id, { method: 'PATCH', lichaam }); toast('Opgeslagen'); laadSiteDetail(id); }
+      catch (err) { toast(err.message, true); }
+    });
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+// ── tickets ──────────────────────────────────────────────────────────────────
+let ticketCache = [];
+async function laadTickets() {
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Tickets laden…</p></div></div>';
+  try {
+    const d = await api('/api/tickets');
+    ticketCache = d.tickets;
+    zetTeller('tab-tickets', ticketCache.filter((t) => ['open', 'in behandeling', 'wacht op Tom'].includes(t.status)).length, ticketCache.some((t) => t.prioriteit === 'kritiek' && t.status !== 'gesloten'));
+    const rijen = ticketCache.map((t) => '<div class="ticket-rij" data-ticket="' + t.id + '">'
+      + '<span class="prio ' + esc(t.prioriteit) + '"></span><div class="midden">'
+      + '<div class="titel">#' + t.id + ' ' + esc(t.titel) + '</div>'
+      + '<div class="meta">' + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '<span>geen IP</span>')
+      + chip(t.status, t.status === 'open' ? 'amber' : t.status === 'opgelost' ? 'groen' : t.status === 'gesloten' ? '' : 'blauw')
+      + (t.prioriteit !== 'normaal' ? chip(t.prioriteit, t.prioriteit === 'kritiek' ? 'rood' : 'amber') : '')
+      + '<span>' + (t.berichten || 0) + ' bericht' + ((t.berichten || 0) === 1 ? '' : 'en') + '</span>'
+      + '<span>' + geleden(t.aangemaakt) + '</span></div></div>'
+      + '<div class="rechts" style="align-self:center"><span class="chip">open</span></div></div>').join('');
+    beeld.innerHTML =
+      '<details class="uitklap"' + (ticketCache.length ? '' : ' open') + '><summary>' + ico.plus + ' Nieuw ticket voor de ICT-agent<span class="plus">+</span></summary><div class="binnen">'
+      + '<form id="ticketform" class="form-rij">'
+      + '<div class="form-rij twee"><label class="veld"><span>Titel</span><input name="titel" required placeholder="Bijv. Website reageert niet na update"></label>'
+      + '<label class="veld"><span>IP-adres</span><input name="ip" placeholder="192.168.1.24" pattern="(\\d{1,3}\\.){3}\\d{1,3}"></label></div>'
+      + '<div class="form-rij twee"><label class="veld"><span>Prioriteit</span><select name="prioriteit"><option value="normaal">normaal</option><option value="laag">laag</option><option value="hoog">hoog</option><option value="kritiek">kritiek</option></select></label>'
+      + '<label class="veld"><span>Scan vooraf</span><button class="knop" type="button" id="scan-knop" style="width:100%">' + ico.span + 'IP aftasten</button></label></div>'
+      + '<label class="veld"><span>Wat moet de agent uitzoeken?</span><textarea name="omschrijving" placeholder="Beschrijf het probleem, wat je al geprobeerd hebt en wat je verwacht."></textarea></label>'
+      + '<div id="scan-uit"></div>'
+      + '<button class="knop primair" type="submit">Ticket aanmaken</button></form></div></details>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Alle tickets</h2><div class="rechts"><span style="font-size:12px;color:var(--muted2)">' + ticketCache.length + ' totaal</span></div></div>'
+      + (rijen ? '<div>' + rijen + '</div>' : leeg('Nog geen tickets. Maak het eerste aan voor je ICT-agent.')) + '</div>'
+      + '<p class="hint">De agent leest deze tickets via de agent-API (zie Instellingen) en schrijft zijn bevindingen terug in het ticket.</p>';
+    beeld.querySelectorAll('[data-ticket]').forEach((el) => el.addEventListener('click', () => { ticketDetail = el.dataset.ticket; laadTicketDetail(ticketDetail); }));
+    const scanKnop = $('#scan-knop');
+    scanKnop.addEventListener('click', async () => {
+      const ip = $('[name=ip]').value.trim();
+      if (!ip) return toast('Vul eerst een IP-adres in', true);
+      scanKnop.classList.add('bezig'); scanKnop.textContent = 'Aftasten…';
+      try {
+        const r = await api('/api/hosts/scan', { method: 'POST', lichaam: { ip } });
+        const sc = r.scan;
+        $('#scan-uit').innerHTML = '<div class="context-blok" style="margin-bottom:12px"><h4>Scan ' + esc(sc.ip) + '</h4>'
+          + '<div style="font-size:12.5px;color:var(--muted)">Open poorten: ' + (sc.poorten.length ? '' : 'geen') + '</div>'
+          + '<div class="poorten">' + sc.poorten.map((p) => '<span class="chip mono groen">' + p + '</span>').join('') + '</div>'
+          + (sc.diensten.length ? '<ul style="margin-top:9px">' + sc.diensten.map((d) => '<li>poort ' + d.poort + ' — ' + esc(d.titel || d.server || d.fout || 'geen titel') + ' (' + (d.code || '—') + ')</li>').join('') + '</ul>' : '')
+          + '</div>';
+      } catch (err) { toast(err.message, true); }
+      finally { scanKnop.classList.remove('bezig'); scanKnop.innerHTML = ico.span + 'IP aftasten'; }
+    });
+    $('#ticketform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const lichaam = Object.fromEntries(new FormData(e.target).entries());
+      try { const r = await api('/api/tickets', { method: 'POST', lichaam }); toast('Ticket #' + r.ticket.id + ' aangemaakt'); ticketDetail = String(r.ticket.id); laadTicketDetail(ticketDetail); }
+      catch (err) { toast(err.message, true); }
+    });
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+async function laadTicketDetail(id) {
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Ticket laden…</p></div></div>';
+  try {
+    const d = await api('/api/tickets/' + id);
+    const t = d.ticket;
+    const ctx = d.context || {};
+    const host = ctx.host || {};
+    const berichten = d.berichten.map((b) =>
+      '<div class="bericht ' + (b.rol === 'agent' ? 'agent' : '') + '"><div class="kop"><b>' + esc(b.auteur) + '</b>'
+      + chip(b.rol === 'agent' ? 'ICT-agent' : 'Tom', b.rol === 'agent' ? 'blauw' : '') + '<span>' + datum(b.op) + '</span></div>'
+      + '<div class="tekst">' + esc(b.bericht) + '</div></div>').join('');
+    const contextHtml =
+      '<div class="context-blok"><h4>Technische context</h4>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
+      + (t.ip ? '<span class="chip mono">' + esc(t.ip) + '</span>' : '<span class="chip">geen IP</span>')
+      + (host.laatste_scan ? '<span class="chip">scan ' + geleden(host.laatste_scan) + '</span>' : '<span class="chip">nog niet gescand</span>')
+      + '</div>'
+      + (host.poorten && host.poorten.length ? '<div class="poorten">' + host.poorten.map((p) => '<span class="chip mono groen">' + p + '</span>').join('') + '</div>' : '')
+      + (host.diensten && host.diensten.length ? '<ul>' + host.diensten.map((x) => '<li>poort ' + x.poort + ' — ' + esc(x.titel || x.server || x.fout || '') + ' (' + (x.code || '—') + ')</li>').join('') + '</ul>' : '')
+      + (ctx.sites && ctx.sites.length ? '<div style="margin-top:9px;color:var(--muted2);font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700">Sites op dit IP</div>'
+        + '<ul>' + ctx.sites.map((s) => '<li>' + esc(s.naam) + ' — ' + (s.ok ? 'online' : 'storing') + (s.versie ? ' · ' + esc(versieLabel(s.versie)) : '') + '</li>').join('') + '</ul>' : '')
+      + '</div>';
+    beeld.innerHTML =
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
+      + '<button class="knop klein stil" id="terug">' + ico.terug + 'Tickets</button><span style="margin-left:auto"></span>'
+      + (t.ip ? '<button class="knop klein" id="scan-nu">' + ico.span + 'IP opnieuw scannen</button>' : '')
+      + '<button class="knop klein" id="agent-prompt">Kopieer agent-opdracht</button>'
+      + '<button class="knop klein gevaar" id="verwijder-ticket">Verwijderen</button></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-body"><div class="ticket-kop">'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="prio ' + esc(t.prioriteit) + '" style="width:4px;height:26px;border-radius:2px;background:var(--' + (t.prioriteit === 'kritiek' ? 'red' : t.prioriteit === 'hoog' ? 'amber' : 'blue') + ')"></span>'
+      + '<h2>#' + t.id + ' · ' + esc(t.titel) + '</h2></div>'
+      + '<div class="sub">' + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '') + chip(t.status, t.status === 'open' ? 'amber' : t.status === 'opgelost' ? 'groen' : 'blauw')
+      + '<span>aangemaakt ' + datum(t.aangemaakt) + '</span><span>bijgewerkt ' + geleden(t.bijgewerkt) + '</span></div>'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      + '<select id="status" style="width:auto;min-width:170px">' + ['open', 'in behandeling', 'wacht op Tom', 'opgelost', 'gesloten'].map((s) => '<option' + (s === t.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>'
+      + '<select id="prioriteit" style="width:auto;min-width:130px">' + ['laag', 'normaal', 'hoog', 'kritiek'].map((p) => '<option' + (p === t.prioriteit ? ' selected' : '') + '>' + p + '</option>').join('') + '</select>'
+      + '</div></div>'
+      + (berichten ? '<div class="berichten">' + berichten + '</div>' : '<p class="leeg">Nog geen berichten.</p>')
+      + '<form id="reageer"><label class="veld"><span>Bericht toevoegen</span><textarea name="bericht" placeholder="Wat heb je zelf gezien of geprobeerd?"></textarea></label>'
+      + '<div style="display:flex;gap:8px"><button class="knop primair" type="submit">Versturen</button></div></form>'
+      + '</div></div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Wat de agent ziet</h2></div><div class="kaart-body">' + contextHtml + '</div></div>';
+    $('#terug').addEventListener('click', () => { ticketDetail = null; laadTickets(); });
+    $('#status').addEventListener('change', async (e) => {
+      try { await api('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { status: e.target.value } }); toast('Status bijgewerkt'); }
+      catch (err) { toast(err.message, true); }
+    });
+    $('#prioriteit').addEventListener('change', async (e) => {
+      try { await api('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { prioriteit: e.target.value } }); toast('Prioriteit bijgewerkt'); }
+      catch (err) { toast(err.message, true); }
+    });
+    $('#reageer').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bericht = e.target.querySelector('textarea').value.trim();
+      if (!bericht) return;
+      try { await api('/api/tickets/' + t.id + '/berichten', { method: 'POST', lichaam: { bericht } }); toast('Bericht geplaatst'); laadTicketDetail(t.id); }
+      catch (err) { toast(err.message, true); }
+    });
+    if ($('#scan-nu')) $('#scan-nu').addEventListener('click', async (e) => {
+      e.target.classList.add('bezig');
+      try { const r = await api('/api/hosts/scan', { method: 'POST', lichaam: { ip: t.ip } }); toast('Scan klaar: ' + r.scan.poorten.length + ' open poorten'); laadTicketDetail(t.id); }
+      catch (err) { toast(err.message, true); e.target.classList.remove('bezig'); }
+    });
+    $('#agent-prompt').addEventListener('click', async () => {
+      const opdracht = 'Je bent de ICT-agent van Werdens Media. Onderzoek ticket #' + t.id + ' (' + t.titel + ')'
+        + (t.ip ? ' op IP ' + t.ip : '') + '. Haal de context op met GET /api/agent/tickets/' + t.id
+        + ' en de site-status met GET /api/agent/sites. Schrijf je bevindingen en vervolgstappen terug met'
+        + ' POST /api/agent/tickets/' + t.id + '/berichten. Gebruik het agent-token uit Werdens Monitor (Instellingen).';
+      try { await navigator.clipboard.writeText(opdracht); toast('Agent-opdracht gekopieerd'); }
+      catch { toast('Kopiëren lukte niet — selecteer de tekst in de README', true); }
+    });
+    $('#verwijder-ticket').addEventListener('click', () => {
+      bevestig('Ticket verwijderen', 'Ticket #' + t.id + ' en alle berichten verwijderen?', async () => {
+        await api('/api/tickets/' + t.id, { method: 'DELETE' }); ticketDetail = null; toast('Ticket verwijderd'); laadTickets();
+      });
+    });
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+// ── modal ────────────────────────────────────────────────────────────────────
+function bevestig(titel, tekst, ja) {
+  const m = $('#modal');
+  $('#modal-inhoud').innerHTML = '<h3 style="margin-bottom:8px">' + esc(titel) + '</h3><p style="color:var(--muted);font-size:13.5px;margin:0 0 18px">' + esc(tekst) + '</p>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end"><button class="knop" id="nee">Annuleren</button><button class="knop gevaar" id="ja">Verwijderen</button></div>';
+  m.classList.add('aan');
+  const sluit = () => m.classList.remove('aan');
+  $('#nee').addEventListener('click', sluit);
+  m.addEventListener('click', (e) => { if (e.target === m) sluit(); }, { once: true });
+  $('#ja').addEventListener('click', async () => { try { await ja(); } catch (err) { toast(err.message, true); } sluit(); }, { once: true });
+}
+
+// ── instellingen ─────────────────────────────────────────────────────────────
+async function laadInstellingen() {
+  try {
+    const d = await api('/api/instellingen');
+    const curl = 'curl -H "Authorization: Bearer ' + d.agent_token + '" http://<dit-adres>/api/agent/tickets';
+    beeld.innerHTML =
+      '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>ICT-agent koppelen</h2></div><div class="kaart-body">'
+      + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">De agent leest en schrijft alleen tickets, met dit token. Geef het aan je ICT-agent en laat hem de opdracht hieronder uitvoeren.</p>'
+      + '<label class="veld"><span>Agent-token</span><div style="display:flex;gap:8px"><input id="token" value="' + esc(d.agent_token) + '" readonly style="font-family:var(--mono);font-size:12.5px">'
+      + '<button class="knop" id="kopieer">Kopiëren</button><button class="knop gevaar" id="nieuw-token">Vernieuwen</button></div></label>'
+      + '<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;overflow-x:auto">'
+      + esc('GET  /api/agent/tickets                 open tickets\nGET  /api/agent/tickets/:id             ticket + context\nPOST /api/agent/tickets/:id/berichten     bevinding terug\nPATCH /api/agent/tickets/:id            status zetten\nGET  /api/agent/sites                   site-status\nPOST /api/agent/scan { "ip": "..." }    host aftasten') + '</div>'
+      + '<p class="hint">Voorbeeld: <code>' + esc(curl) + '</code></p>'
+      + '</div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Beheerder</h2></div><div class="kaart-body">'
+      + '<form id="wwform" class="form-rij">'
+      + '<label class="veld"><span>Naam</span><input name="admin_naam" value="' + esc(d.admin_naam) + '"></label>'
+      + '<div class="form-rij twee"><label class="veld"><span>Huidig wachtwoord</span><input name="huidig_wachtwoord" type="password" autocomplete="current-password"></label>'
+      + '<label class="veld"><span>Nieuw wachtwoord</span><input name="wachtwoord" type="password" autocomplete="new-password" minlength="8" placeholder="min. 8 tekens"></label></div>'
+      + '<button class="knop primair" type="submit">Opslaan</button></form></div></div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Systeem</h2></div><div class="kaart-body">'
+      + '<div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted)">'
+      + '<div>Versie <b style="color:var(--txt)">' + esc(d.versie) + '</b></div>'
+      + '<div>GitHub-token <b style="color:var(--txt)">' + esc(d.github_token) + '</b></div>'
+      + '<div>Projecten opgehaald <b style="color:var(--txt)">' + geleden(d.projecten_op) + '</b></div>'
+      + (d.projecten_fout ? '<div style="color:var(--red)">' + esc(d.projecten_fout) + '</div>' : '')
+      + '</div></div></div>';
+    $('#kopieer').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(d.agent_token); toast('Token gekopieerd'); }
+      catch { toast('Kopiëren lukte niet', true); }
+    });
+    $('#nieuw-token').addEventListener('click', async () => {
+      try { await api('/api/instellingen', { method: 'PATCH', lichaam: { agent_token: 'nieuw' } }); toast('Nieuw token aangemaakt'); laadInstellingen(); }
+      catch (e) { toast(e.message, true); }
+    });
+    $('#wwform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const lichaam = Object.fromEntries(new FormData(e.target).entries());
+      try {
+        const r = await api('/api/instellingen', { method: 'PATCH', lichaam });
+        toast('Opgeslagen');
+        if (r.opnieuw_inloggen) { toonLogin(); }
+      } catch (err) { toast(err.message, true); }
+    });
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+// ── start ────────────────────────────────────────────────────────────────────
+start();
+setInterval(() => { if (huidigeTab === 'overzicht') laadOverzicht(); }, 60000);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>

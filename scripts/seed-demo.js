@@ -1,0 +1,102 @@
+'use strict';
+// Vult een lege database met een paar voorbeelden, zodat het dashboard meteen
+// iets toont. Gebruik: DB_PATH=/tmp/demo.db node scripts/seed-demo.js
+const { DatabaseSync } = require('node:sqlite');
+const crypto = require('node:crypto');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const dbPad = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'monitor.db');
+fs.mkdirSync(path.dirname(dbPad), { recursive: true });
+const db = new DatabaseSync(dbPad);
+const nu = () => new Date().toISOString();
+const scrypt = (w, z) => crypto.scryptSync(String(w), z, 64).toString('hex');
+const afdruk = (w) => { const z = crypto.randomBytes(16).toString('hex'); return z + ':' + scrypt(w, z); };
+
+// tabellen staan er al als de app één keer gestart is; anders zelf aanmaken
+db.exec(`
+CREATE TABLE IF NOT EXISTS instellingen(sleutel TEXT PRIMARY KEY, waarde TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessies(token TEXT PRIMARY KEY, aangemaakt TEXT NOT NULL, verloopt TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sites(id INTEGER PRIMARY KEY AUTOINCREMENT, naam TEXT NOT NULL, url TEXT NOT NULL,
+  ip TEXT NOT NULL DEFAULT '', repo TEXT NOT NULL DEFAULT '', stats_url TEXT NOT NULL DEFAULT '',
+  interval_s INTEGER NOT NULL DEFAULT 60, actief INTEGER NOT NULL DEFAULT 1, aangemaakt TEXT NOT NULL,
+  stats_json TEXT NOT NULL DEFAULT '', stats_op TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS controles(id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER NOT NULL, op TEXT NOT NULL,
+  ok INTEGER NOT NULL, code INTEGER, ms INTEGER, versie TEXT NOT NULL DEFAULT '', bytes INTEGER, tls_dagen INTEGER,
+  titel TEXT NOT NULL DEFAULT '', fout TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS projecten(naam TEXT PRIMARY KEY, url TEXT NOT NULL DEFAULT '',
+  zichtbaarheid TEXT NOT NULL DEFAULT '', taal TEXT NOT NULL DEFAULT '', beschrijving TEXT NOT NULL DEFAULT '',
+  versie TEXT NOT NULL DEFAULT '', tag TEXT NOT NULL DEFAULT '', commit_sha TEXT NOT NULL DEFAULT '',
+  commit_bericht TEXT NOT NULL DEFAULT '', commit_datum TEXT NOT NULL DEFAULT '', ci_status TEXT NOT NULL DEFAULT '',
+  issues INTEGER NOT NULL DEFAULT 0, bijgewerkt TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '',
+  fout TEXT NOT NULL DEFAULT '', opgehaald TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS hosts(ip TEXT PRIMARY KEY, naam TEXT NOT NULL DEFAULT '', notitie TEXT NOT NULL DEFAULT '',
+  laatste_scan TEXT NOT NULL DEFAULT '', poorten TEXT NOT NULL DEFAULT '', diensten TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS tickets(id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL DEFAULT '',
+  titel TEXT NOT NULL, omschrijving TEXT NOT NULL DEFAULT '', prioriteit TEXT NOT NULL DEFAULT 'normaal',
+  status TEXT NOT NULL DEFAULT 'open', aangemaakt TEXT NOT NULL, bijgewerkt TEXT NOT NULL,
+  ai_onderzoek TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS berichten(id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+  auteur TEXT NOT NULL DEFAULT '', rol TEXT NOT NULL DEFAULT 'tom', bericht TEXT NOT NULL, op TEXT NOT NULL);
+`);
+
+const zet = db.prepare('INSERT INTO instellingen(sleutel,waarde) VALUES(?,?) ON CONFLICT(sleutel) DO UPDATE SET waarde=excluded.waarde');
+if (!db.prepare("SELECT 1 FROM instellingen WHERE sleutel='admin_hash'").get()) {
+  zet.run('admin_hash', afdruk(process.env.ADMIN_PASSWORD || 'demo1234'));
+  zet.run('admin_naam', 'Tom');
+}
+if (!db.prepare("SELECT 1 FROM instellingen WHERE sleutel='agent_token'").get()) {
+  zet.run('agent_token', crypto.randomBytes(24).toString('hex'));
+}
+
+const siteZet = db.prepare(`INSERT INTO sites(naam,url,ip,repo,stats_url,interval_s,actief,aangemaakt,stats_json,stats_op)
+  VALUES(?,?,?,?,?,?,?,?,?,?)`);
+const controleZet = db.prepare(`INSERT INTO controles(site_id,op,ok,code,ms,versie,bytes,tls_dagen,titel,fout)
+  VALUES(?,?,?,?,?,?,?,?,?,?)`);
+
+const sites = [
+  { naam: 'Thuis — VoorraadThuis', url: 'https://thuis.werdensmedia.net/', ip: '192.168.1.50', repo: 'voorraadthuis-app', stats: { gebruikers: '6', bestanden: '1.284', database_mb: '18,4', laatste_backup: 'vannacht 03:00' } },
+  { naam: 'Bakken — QR-stickers', url: 'https://bakken.werdensmedia.net/', ip: '192.168.1.51', repo: 'bakken', stats: { gebruikers: '3', bestanden: '212', database_mb: '4,1', laatste_backup: 'vannacht 03:00' } },
+  { naam: 'AkkoordKast', url: 'https://akkoordkast.werdensmedia.net/', ip: '192.168.1.52', repo: 'akkoordkast', stats: { gebruikers: '2', bestanden: '8.701 liedjes', database_mb: '96,2', laatste_backup: 'vannacht 03:10' } },
+  { naam: 'Werdens Media — hoofdsite', url: 'https://werdensmedia.net/', ip: '192.168.1.10', repo: '', stats: null },
+];
+
+const bestaand = db.prepare('SELECT COUNT(*) n FROM sites').get().n;
+if (!bestaand) {
+  for (const s of sites) {
+    const r = siteZet.run(s.naam, s.url, s.ip, s.repo, '', 300, 1, nu(), s.stats ? JSON.stringify(s.stats) : '', s.stats ? nu() : '');
+    // 26 uur geschiedenis, één meting per uur, met een korte storing
+    for (let i = 26; i >= 0; i--) {
+      const op = new Date(Date.now() - i * 3600e3).toISOString();
+      const storing = s.naam.startsWith('Bakken') && i === 7;
+      const ms = storing ? null : 40 + ((i * 37) % 90);
+      controleZet.run(r.lastInsertRowid, op, storing ? 0 : 1, storing ? 502 : 200, ms,
+        s.repo ? '2.' + (4 + (i % 3)) + '.' + (i % 10) : '', storing ? null : 18000 + i * 211, 74, s.naam, storing ? 'Bad gateway tijdens deploy' : '');
+    }
+  }
+}
+
+if (!db.prepare('SELECT COUNT(*) n FROM hosts').get().n) {
+  db.prepare('INSERT INTO hosts(ip,naam,notitie,laatste_scan,poorten,diensten) VALUES(?,?,?,?,?,?)')
+    .run('192.168.1.50', 'proxmox-thuis', 'LXC 105 — VoorraadThuis', nu(),
+      JSON.stringify([22, 80, 443, 3000]), JSON.stringify([{ poort: 443, url: 'https://192.168.1.50:443/', code: 200, titel: 'Thuis', server: 'nginx' }]));
+  db.prepare('INSERT INTO hosts(ip,naam,notitie,laatste_scan,poorten,diensten) VALUES(?,?,?,?,?,?)')
+    .run('192.168.1.10', 'nas-werdens', 'NAS — back-ups en media', nu(), JSON.stringify([22, 445, 5000, 5001]), '[]');
+}
+
+if (!db.prepare('SELECT COUNT(*) n FROM tickets').get().n) {
+  const t1 = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt)
+    VALUES(?,?,?,?,?,?,?)`).run('192.168.1.50', 'Bakken laadt traag na deploy', 'Sinds de update van gisteren duurt het scannen van een QR-sticker ruim acht seconden.', 'hoog', 'in behandeling', nu(), nu());
+  db.prepare('INSERT INTO berichten(ticket_id,auteur,rol,bericht,op) VALUES(?,?,?,?,?)')
+    .run(t1.lastInsertRowid, 'Tom', 'tom', 'Sinds de update van gisteren duurt het scannen van een QR-sticker ruim acht seconden.', nu());
+  db.prepare('INSERT INTO berichten(ticket_id,auteur,rol,bericht,op) VALUES(?,?,?,?,?)')
+    .run(t1.lastInsertRowid, 'AI-agent', 'agent', 'Ik heb de logs van de LXC bekeken: de SQLite-query op stickers doet 6,2 s. Wil je dat ik de index op barcode toevoeg?', nu());
+
+  const t2 = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt)
+    VALUES(?,?,?,?,?,?,?)`).run('192.168.1.10', 'Schijf NAS bijna vol', 'De back-upschijf zit op 91%.', 'kritiek', 'open', nu(), nu());
+  db.prepare('INSERT INTO berichten(ticket_id,auteur,rol,bericht,op) VALUES(?,?,?,?,?)')
+    .run(t2.lastInsertRowid, 'Tom', 'tom', 'De back-upschijf zit op 91%.', nu());
+}
+
+console.log('Demodata in ' + dbPad);
+db.close();
