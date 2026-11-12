@@ -2289,7 +2289,7 @@ function rechtenKaart(r) {
       ? '<p class="hint" style="margin-top:12px">Rechten die Proxmox voor deze token teruggeeft:</p>'
         + '<div class="alerts">' + r.rechten.map((x) => '<div class="alert"><div class="tekst"><b>' + esc(x.pad) + '</b> — ' + (x.rechten && x.rechten.length ? esc(x.rechten.join(', ')) : 'geen rechten') + '</div></div>').join('') + '</div>'
       : '')
-    + '<p class="hint" style="margin-top:12px">Ingelogd met ' + esc(r.inloggen === 'token' ? 'API-token' : 'wachtwoord') + ' op ' + esc(r.url || '') + '.</p>'
+    + '<p class="hint" style="margin-top:12px">Ingelogd met ' + esc(r.inloggen === 'token' ? 'API-token' : 'wachtwoord') + (r.gebruiker ? ' als ' + esc(r.gebruiker) : '') + ' op ' + esc(r.url || '') + '.</p>'
     + '</div></div>';
 }
 

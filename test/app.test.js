@@ -425,8 +425,8 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
       if (u === '/api2/json/cluster/resources' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: null, errors: 'permission denied' }, 403);
       if (u === '/api2/json/nodes/pve1/status' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: null, errors: 'permission denied' }, 403);
       // access/permissions: de rechten die de token echt heeft.
-      if (u === '/api2/json/access/permissions' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: {} });
-      if (u === '/api2/json/access/permissions') return json({ data: { '/': { 'Sys.Audit': 1, 'VM.Audit': 1, 'Datastore.Audit': 1 } } });
+      if (u === '/api2/json/access/permissions' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: { user: 'root@pam!monitor' } });
+      if (u === '/api2/json/access/permissions') return json({ data: { user: 'root@pam!monitor', '/': { 'Sys.Audit': 1, 'VM.Audit': 1, 'Datastore.Audit': 1 } } });
       if (u === '/api2/json/nodes/pve1/status') return json({ data: { cpu: 0.12, mem: 8589934592, maxmem: 34359738368, uptime: 604800 } });
       // Token waarbij /nodes geen cijfers geeft maar /cluster/resources ze wel heeft.
       if (u === '/api2/json/nodes' && auth === 'PVEAPIToken=root@pam!monitor=alleenresources') return json({ data: [
@@ -517,6 +517,7 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     assert.equal(rknGoed.data.ok, true, 'met de juiste rechten is het in orde');
     assert.ok(rknGoed.data.rijen.every((r) => r.code === 200), 'alle endpoints 200');
     assert.equal(rknGoed.data.inloggen, 'token');
+    assert.equal(rknGoed.data.gebruiker, 'root@pam!monitor', 'de gebruiker staat erbij');
 
     // Zonder cijfers in /nodes vullen we aan vanuit /cluster/resources.
     const pveResources = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox alleen resources', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'alleenresources' } });
