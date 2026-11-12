@@ -7,6 +7,8 @@
 #   ADMIN_PASSWORD  verplicht bij een verse installatie
 #   GITHUB_TOKEN    token voor de Projecten-tab
 #   PORT            standaard 8080
+#   PUBLIEK_POORT   poort van de publieke meldpagina, standaard 8081; 0 = uit
+#   PUBLIEK_BIND    IP-adres waarop de meldpagina luistert, standaard 0.0.0.0
 #   MAP             installatiemap, standaard /opt/werdens-monitor
 set -euo pipefail
 
@@ -122,6 +124,8 @@ fi
 if [ ! -f /etc/$DIENST.env ]; then
   {
     echo "PORT=$POORT"
+    echo "PUBLIEK_POORT=${PUBLIEK_POORT:-8081}"
+    echo "PUBLIEK_BIND=${PUBLIEK_BIND:-0.0.0.0}"
     echo "DB_PATH=$MAP/data/monitor.db"
     [ -n "${ADMIN_PASSWORD:-}" ] && echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
     [ -n "${ADMIN_NAAM:-}" ] && echo "ADMIN_NAAM=$ADMIN_NAAM"

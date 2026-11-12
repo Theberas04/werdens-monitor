@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.9.0">
+<meta name="version" content="1.10.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -3031,6 +3031,9 @@ async function laadInstellingen() {
       + '<form id="slackform"><label class="veld"><span>Webhook-URL</span><input name="slack_webhook" value="' + esc(d.slack_webhook || '') + '" placeholder="https://hooks.slack.com/services/..." autocomplete="off" spellcheck="false"></label>'
       + '<label class="veld"><span>Publiek adres — hier wijst de link in het bericht naar</span><input name="publieke_url" value="' + esc(d.publieke_url || '') + '" placeholder="https://dashboard.werdensmedia.net" autocomplete="off" spellcheck="false"></label>'
       + '<p class="hint" style="margin:-4px 0 12px">Nu gebruikt: <b>' + esc(d.publieke_url_actief || '') + '</b>' + (d.laatste_adres && d.laatste_adres !== d.publieke_url_actief ? ' · laatst geopend via ' + esc(d.laatste_adres) : '') + '. Laat leeg om het adres te gebruiken waarmee je het dashboard opent.</p>'
+      + '<label class="veld"><span>Adres van de meldpagina — hier komt de melding van buiten binnen</span><input name="meld_url" value="' + esc(d.meld_url || '') + '" placeholder="https://melden.werdensmedia.net" autocomplete="off" spellcheck="false"></label>'
+      + '<p class="hint" style="margin:-4px 0 12px">Nu gebruikt: <b>' + esc(d.meld_url_actief || '') + '</b>. De meldpagina draait op een eigen poort (<code>' + esc(String(d.publiek_poort || 0)) + '</code>)' + (d.publiek_bind && d.publiek_bind !== '0.0.0.0' ? ' en het adres <code>' + esc(d.publiek_bind) + '</code>' : '') + '; zet <code>PUBLIEK_POORT</code> in <code>/etc/werdens-monitor.env</code> om hem uit of op een andere poort te zetten.</p>'
+      + '<p class="hint" style="margin:-4px 0 12px">Zet je hier een eigen domein (bijvoorbeeld via Cloudflare), dan is dat het adres dat je deelt; de pagina zelf blijft op dezelfde plek draaien.</p>'
       + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 14px"><label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_aan"' + (d.slack_aan ? ' checked' : '') + '> Meldingen versturen</label>'
       + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_herstel"' + (d.slack_herstel ? ' checked' : '') + '> Ook herstel melden</label></div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Opslaan</button><button class="knop" type="button" id="slack-test">Testbericht</button></div></form>'
@@ -3080,6 +3083,7 @@ async function laadInstellingen() {
         await api('/api/instellingen', { method: 'PATCH', lichaam: {
           slack_webhook: f.get('slack_webhook') || '',
           publieke_url: f.get('publieke_url') || '',
+          meld_url: f.get('meld_url') || '',
           slack_aan: !!f.get('slack_aan'),
           slack_herstel: !!f.get('slack_herstel'),
         } });

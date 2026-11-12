@@ -378,7 +378,9 @@ Zonder `ADMIN_PASSWORD` genereert de app er één en zet die in het log; zonder
 
 | Variabele | Standaard | Betekenis |
 |---|---|---|
-| `PORT` | `8080` | poort waarop de app luistert |
+| `PORT` | `8080` | poort waarop het dashboard luistert |
+| `PUBLIEK_POORT` | `8081` | poort van de publieke meldpagina; `0` = uit |
+| `PUBLIEK_BIND` | `0.0.0.0` | IP-adres waarop de publieke meldpagina luistert |
 | `DB_PATH` | `data/monitor.db` | pad naar de SQLite-database |
 | `ADMIN_PASSWORD` | gegenereerd | wachtwoord van het beheerdersaccount |
 | `ADMIN_NAAM` | `tom` | naam in de kop van het dashboard |
@@ -470,6 +472,59 @@ Tegen misbruik zitten er drie remmen op: een verborgen veld dat leeg moet blijve
 (honingpot), een minimale invultijd van drie seconden (een bot verstuurt meteen)
 en een limiet per IP (maximaal één per 45 seconden en vijf per uur).
 
+### De meldpagina op een eigen adres (voor Cloudflare)
+
+De meldpagina hoeft niet op hetzelfde adres als het dashboard te staan. Met
+`PUBLIEK_POORT` start de app een **tweede luisteraar** die alleen de meldpagina
+en haar API bedient: geen inlogpagina, geen dashboard en geen andere
+API-routes. Standaard is dat poort `8081`; `PUBLIEK_POORT=0` zet hem uit.
+
+```bash
+# /etc/werdens-monitor.env
+PUBLIEK_POORT=8081
+PUBLIEK_BIND=0.0.0.0
+```
+
+Daarna is de pagina bereikbaar op `http://<lxc-ip>:8081/` (en op
+`http://<lxc-ip>:8081/melden`). Het dashboard blijft gewoon op `:8080`. Op het
+tweede adres bestaat alleen de meldpagina: `/api/overzicht`, `/api/tickets` en
+`/api/login` geven daar een 404, ook als iemand het adres raadt.
+
+**Met Cloudflare Tunnel** (aanbevolen — je hoeft geen poort in de router open te
+zetten):
+
+1. Maak in Cloudflare Zero Trust een tunnel en een hostname, bijvoorbeeld
+   `melden.werdensmedia.nl`.
+2. Laat de tunnel naar `http://127.0.0.1:8081` wijzen.
+3. Installeer `cloudflared` als dienst op de LXC.
+
+```yaml
+# /etc/cloudflared/config.yml
+tunnel: <tunnel-id>
+credentials-file: /etc/cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: melden.werdensmedia.nl
+    service: http://127.0.0.1:8081
+  - service: http_status:404
+```
+
+**Een eigen IP-adres in plaats van een eigen poort.** Wil je de pagina echt op
+een tweede IP hebben, geef de LXC dan een tweede interface (op de Proxmox-host):
+
+```bash
+pct set 120 -net1 name=eth1,bridge=vmbr0,ip=192.168.1.121/24
+```
+
+en zet `PUBLIEK_BIND=192.168.1.121` in `/etc/werdens-monitor.env`. De tunnel
+wijst dan naar `http://192.168.1.121:8081`.
+
+**Waarom één proces en geen tweede container.** De meldingen moeten in dezelfde
+database landen; een tweede container zou een tweede database krijgen en dan
+staan de tickets op twee plekken. De tweede luisteraar deelt de database wél en
+het dashboard niet: op dat adres bestaat alleen de meldpagina. Wil je de pagina
+toch als losse site hosten, zet dan een reverse proxy of Cloudflare Tunnel voor
+`PUBLIEK_POORT` en houd het dashboard achter de eigen tunnel.
+
 **Ticket maken van een storing.** Op de meldingen-tab heeft elke storing een
 knop **Ticket maken**: de melding komt als eerste systeembericht in het ticket,
 de ernst bepaalt de prioriteit en de soort bepaalt de categorie (een host-melding
@@ -485,7 +540,7 @@ open-status; de twee wacht-statussen zetten de SLA-klok stil.
 ## Ontwikkelen
 
 ```bash
-node --test test/*.test.js       # 24 tests
+node --test test/*.test.js       # 32 tests
 node scripts/seed-demo.js        # demodata in een lege database
 node scripts/record-demo.js uit/frames   # schermopname via CDP
 ```
@@ -508,7 +563,7 @@ lib/slack.js           Slack-webhook: bericht opbouwen en versturen
 public/                index.html (één bestand), melden.html (publieke meldpagina), sw.js, manifest, iconen
 scripts/werdens-agent.js  hardware-agent voor andere servers (geen npm)
 scripts/               seed-demo.js, shoot.js, shoot-slack.js, record-demo.js
-test/                  node:test, 24 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina)
+test/                  node:test, 32 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina op eigen adres)
 docs/                  schermafbeeldingen, hero en de demo-video
 ```
 

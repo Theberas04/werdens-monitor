@@ -202,6 +202,19 @@ function publiekAdres() {
   return 'http://' + (lan ? lan.address : 'localhost') + ':' + POORT;
 }
 
+// Het adres van de publieke meldpagina. Die kan op een eigen poort (en eigen
+// IP) draaien; dit is het adres dat je in een bericht of op een website plakt.
+// Volgorde: wat je zelf instelt, dan het adres van de publieke luisteraar.
+function meldAdres() {
+  const schoon = (v) => String(v || '').trim().replace(/\/+$/, '');
+  const eigen = schoon(instelling('meld_url'));
+  if (eigen) return eigen;
+  const lan = Object.values(os.networkInterfaces()).flat().find((n) => n && n.family === 'IPv4' && !n.internal);
+  const host = PUBLIEK_BIND && PUBLIEK_BIND !== '0.0.0.0' ? PUBLIEK_BIND : (lan ? lan.address : 'localhost');
+  const poort = PUBLIEK_POORT > 0 && PUBLIEK_POORT !== POORT ? PUBLIEK_POORT : POORT;
+  return 'http://' + host + ':' + poort + '/melden';
+}
+
 // Onthoud het adres waarmee je binnenkomt, zodat de Slack-link naar de plek
 // wijst waar je de monitor echt opent (bijvoorbeeld achter een reverse proxy).
 function onthoudAdres(req) {
@@ -1287,51 +1300,7 @@ async function verwerk(req, res) {
   if (pad === '/api/melden/info' && methode === 'GET') {
     return json(res, 200, { categorieen: CATEGORIEEN, bedrijf: 'Werdens Media', pagina: '/melden' });
   }
-  if (pad === '/api/melden' && methode === 'POST') {
-    const body = await leesBody(req).catch(() => null);
-    if (!body) return fout(res, 400, 'Ongeldige JSON');
-    // Honeypot: een bot vult het verborgen veld in. Stil aannemen, niets bewaren.
-    if (tekst(body.website, 120)) return json(res, 200, { ok: true });
-    const geopend = Number(body.geopend) || 0;
-    const verstreken = Date.now() - geopend;
-    if (!geopend || verstreken < 3000) return fout(res, 400, 'Het formulier is te snel verstuurd. Probeer het opnieuw.');
-    if (verstreken > 6 * 3600e3) return fout(res, 400, 'Het formulier is verlopen. Laad de pagina opnieuw.');
-    const ip = bezoekerIp(req);
-    db.prepare('DELETE FROM meldpogingen WHERE op < ?').run(new Date(Date.now() - 3600e3).toISOString());
-    const laatste = db.prepare('SELECT op FROM meldpogingen WHERE ip=? ORDER BY id DESC LIMIT 1').get(ip);
-    if (laatste && Date.now() - Date.parse(laatste.op) < 45000) {
-      return fout(res, 429, 'Er is net al een melding verstuurd. Probeer het over een minuut opnieuw.');
-    }
-    const aantal = db.prepare('SELECT COUNT(*) n FROM meldpogingen WHERE ip=?').get(ip).n;
-    if (aantal >= 5) return fout(res, 429, 'Te veel meldingen vanaf dit adres. Probeer het later opnieuw.');
-    let t;
-    try { t = ticketVanBody({ ...body, titel: body.titel || body.onderwerp, status: 'open' }); }
-    catch (e) { return fout(res, 400, e.message); }
-    const impact = ['laag', 'normaal', 'hoog'].includes(body.impact) ? body.impact : 'normaal';
-    const urgentie = ['laag', 'normaal', 'hoog'].includes(body.urgentie) ? body.urgentie : 'normaal';
-    const prioriteit = prioriteitUit(impact, urgentie);
-    const categorie = CATEGORIEEN.includes(String(body.categorie || '').toLowerCase()) ? String(body.categorie).toLowerCase() : '';
-    db.prepare('INSERT INTO meldpogingen(ip,op) VALUES(?,?)').run(ip, nu());
-    const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
-      impact,urgentie,categorie,subcategorie,kanaal,klant_naam,klant_email,soort)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, 'open', nu(), nu(),
-      impact, urgentie, categorie, tekst(body.subcategorie, 60), 'meldpagina',
-      tekst(body.klant_naam, 80), tekst(body.klant_email, 120), 'incident');
-    if (t.omschrijving) {
-      tickets.voegBerichtToe(r.lastInsertRowid, tekst(body.klant_naam, 80) || 'Melder', 'klant', t.omschrijving, false);
-    }
-    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
-      .run(nu(), 'melding', t.ip, 'Melding via de publieke pagina: ' + t.titel);
-    if (slackIngesteld()) {
-      try {
-        await slack.stuur(instelling('slack_webhook'), {
-          tekst: 'Nieuwe melding #' + r.lastInsertRowid + ': ' + t.titel + ' (prioriteit ' + prioriteit + ')',
-          blokken: [{ type: 'section', text: { type: 'mrkdwn', text: ':inbox_tray: *Nieuwe melding #' + r.lastInsertRowid + '*\n' + t.titel + '\nPrioriteit: *' + prioriteit + '*' + (t.ip ? '\nIP: ' + t.ip : '') } }],
-        });
-      } catch (e) { console.error('Slack-bericht over nieuwe melding mislukt: ' + e.message); }
-    }
-    return json(res, 201, { ok: true, ticket: { id: r.lastInsertRowid, titel: t.titel, prioriteit } });
-  }
+  if (pad === '/api/melden' && methode === 'POST') return publiekeMelding(req, res);
 
   // Hardware-agent: elke server heeft zijn eigen token, geen beheerderssessie.
   if (pad === '/api/agent/hardware' && methode === 'POST') {
@@ -2041,6 +2010,10 @@ async function verwerk(req, res) {
       slack_herstel: instelling('slack_herstel', '1') === '1',
       publieke_url: instelling('publieke_url'),
       publieke_url_actief: publiekAdres(),
+      meld_url: instelling('meld_url'),
+      meld_url_actief: meldAdres(),
+      publiek_poort: PUBLIEK_POORT,
+      publiek_bind: PUBLIEK_BIND,
       laatste_adres: instelling('laatste_adres'),
       slack_laatst: instelling('slack_laatst'),
       slack_laatst_fout: instelling('slack_laatst_fout'),
@@ -2098,12 +2071,22 @@ async function verwerk(req, res) {
       }
       zetInstelling('publieke_url', invoer);
     }
+    if (body.meld_url !== undefined) {
+      const invoer = tekst(body.meld_url, 200).replace(/\/+$/, '');
+      if (invoer) {
+        let adres;
+        try { adres = new URL(invoer); } catch { return fout(res, 400, 'Geen geldig adres voor de meldpagina (begin met http:// of https://)'); }
+        if (!/^https?:$/.test(adres.protocol)) return fout(res, 400, 'Het adres van de meldpagina moet met http:// of https:// beginnen');
+      }
+      zetInstelling('meld_url', invoer);
+    }
     if (body.slack_aan !== undefined) zetInstelling('slack_aan', body.slack_aan ? '1' : '0');
     if (body.slack_herstel !== undefined) zetInstelling('slack_herstel', body.slack_herstel ? '1' : '0');
     return json(res, 200, {
       ok: true, github_token: github.token() ? 'ingesteld' : 'niet ingesteld',
       github_login: instelling('github_login'), agent_token: instelling('agent_token'),
       publieke_url: instelling('publieke_url'), publieke_url_actief: publiekAdres(),
+      meld_url: instelling('meld_url'), meld_url_actief: meldAdres(),
       slack_webhook: instelling('slack_webhook'), slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
     });
@@ -2228,6 +2211,101 @@ async function agentRoutes(req, res, delen, url) {
   return fout(res, 404, 'Onbekende agent-route');
 }
 
+// De publieke melding staat in een eigen functie zodat de tweede luisteraar
+// (de publieke pagina op een eigen adres) precies dezelfde route gebruikt.
+async function publiekeMelding(req, res) {
+  const body = await leesBody(req).catch(() => null);
+  if (!body) return fout(res, 400, 'Ongeldige JSON');
+  // Honeypot: een bot vult het verborgen veld in. Stil aannemen, niets bewaren.
+  if (tekst(body.website, 120)) return json(res, 200, { ok: true });
+  const geopend = Number(body.geopend) || 0;
+  const verstreken = Date.now() - geopend;
+  if (!geopend || verstreken < 3000) return fout(res, 400, 'Het formulier is te snel verstuurd. Probeer het opnieuw.');
+  if (verstreken > 6 * 3600e3) return fout(res, 400, 'Het formulier is verlopen. Laad de pagina opnieuw.');
+  const ip = bezoekerIp(req);
+  db.prepare('DELETE FROM meldpogingen WHERE op < ?').run(new Date(Date.now() - 3600e3).toISOString());
+  const laatste = db.prepare('SELECT op FROM meldpogingen WHERE ip=? ORDER BY id DESC LIMIT 1').get(ip);
+  if (laatste && Date.now() - Date.parse(laatste.op) < 45000) {
+    return fout(res, 429, 'Er is net al een melding verstuurd. Probeer het over een minuut opnieuw.');
+  }
+  const aantal = db.prepare('SELECT COUNT(*) n FROM meldpogingen WHERE ip=?').get(ip).n;
+  if (aantal >= 5) return fout(res, 429, 'Te veel meldingen vanaf dit adres. Probeer het later opnieuw.');
+  let t;
+  try { t = ticketVanBody({ ...body, titel: body.titel || body.onderwerp, status: 'open' }); }
+  catch (e) { return fout(res, 400, e.message); }
+  const impact = ['laag', 'normaal', 'hoog'].includes(body.impact) ? body.impact : 'normaal';
+  const urgentie = ['laag', 'normaal', 'hoog'].includes(body.urgentie) ? body.urgentie : 'normaal';
+  const prioriteit = prioriteitUit(impact, urgentie);
+  const categorie = CATEGORIEEN.includes(String(body.categorie || '').toLowerCase()) ? String(body.categorie).toLowerCase() : '';
+  db.prepare('INSERT INTO meldpogingen(ip,op) VALUES(?,?)').run(ip, nu());
+  const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
+    impact,urgentie,categorie,subcategorie,kanaal,klant_naam,klant_email,soort)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, 'open', nu(), nu(),
+    impact, urgentie, categorie, tekst(body.subcategorie, 60), 'meldpagina',
+    tekst(body.klant_naam, 80), tekst(body.klant_email, 120), 'incident');
+  if (t.omschrijving) {
+    tickets.voegBerichtToe(r.lastInsertRowid, tekst(body.klant_naam, 80) || 'Melder', 'klant', t.omschrijving, false);
+  }
+  db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+    .run(nu(), 'melding', t.ip, 'Melding via de publieke pagina: ' + t.titel);
+  if (slackIngesteld()) {
+    try {
+      await slack.stuur(instelling('slack_webhook'), {
+        tekst: 'Nieuwe melding #' + r.lastInsertRowid + ': ' + t.titel + ' (prioriteit ' + prioriteit + ')',
+        blokken: [{ type: 'section', text: { type: 'mrkdwn', text: ':inbox_tray: *Nieuwe melding #' + r.lastInsertRowid + '*\n' + t.titel + '\nPrioriteit: *' + prioriteit + '*' + (t.ip ? '\nIP: ' + t.ip : '') } }],
+      });
+    } catch (e) { console.error('Slack-bericht over nieuwe melding mislukt: ' + e.message); }
+  }
+  return json(res, 201, { ok: true, ticket: { id: r.lastInsertRowid, titel: t.titel, prioriteit } });
+}
+
+// ── publieke meldpagina op een eigen adres ──────────────────────────────────
+// Het dashboard en de meldpagina hoeven niet op hetzelfde adres te staan. Met
+// PUBLIEK_POORT start er een tweede luisteraar die alleen de meldpagina en haar
+// API bedient: geen inlogpagina, geen dashboard, geen andere API-routes. Zet
+// PUBLIEK_BIND op een eigen IP-adres als de pagina aan een apart adres moet
+// hangen. De hoofdsite blijft gewoon op PORT draaien.
+const PUBLIEK_POORT = Number(process.env.PUBLIEK_POORT || 8081);
+const PUBLIEK_BIND = process.env.PUBLIEK_BIND || '0.0.0.0';
+
+async function publiekVerwerk(req, res) {
+  const ruwe = String(req.url || '/');
+  let url;
+  try {
+    url = new URL(ruwe.startsWith('//') ? ruwe.replace(/^\/+/, '/') : ruwe, 'http://melden.local');
+  } catch { return fout(res, 400, 'Ongeldig verzoek'); }
+  const pad = url.pathname;
+  const methode = req.method;
+  const publiek = { 'x-werdensmonitor': 'publiek', 'cache-control': 'no-store' };
+
+  if (pad === '/healthz') return stuur(res, 200, 'ok', { ...publiek, 'content-type': 'text/plain' });
+
+  // De meldpagina is hier de hele site: / en /melden geven hetzelfde formulier.
+  if (pad === '/' || pad === '/melden' || pad === '/melden.html') {
+    if (methode !== 'GET' && methode !== 'HEAD') return fout(res, 405, 'Methode niet toegestaan');
+    return statisch(req, res, '/melden.html');
+  }
+  if (pad === '/api/melden/info' && methode === 'GET') {
+    return json(res, 200, { categorieen: CATEGORIEEN, bedrijf: 'Werdens Media', pagina: '/melden' });
+  }
+  if (pad === '/api/melden' && methode === 'POST') return publiekeMelding(req, res);
+
+  // Alleen merk- en pagina-bestanden; al het andere bestaat hier niet.
+  if (methode === 'GET' || methode === 'HEAD') {
+    if (/^\/(assets\/|icon-\d+\.png$|apple-touch-icon\.png$|favicon\.svg$|manifest\.webmanifest$)/.test(pad)) {
+      return statisch(req, res, pad);
+    }
+  }
+  return stuur(res, 404, 'Niet gevonden', { ...publiek, 'content-type': 'text/plain; charset=utf-8' });
+}
+
+const publiekServer = http.createServer((req, res) => {
+  publiekVerwerk(req, res).catch((e) => {
+    console.error('Fout in publiek verzoek ' + req.method + ' ' + req.url + ': ' + (e && e.stack || e));
+    if (!res.headersSent) fout(res, 500, 'Interne fout');
+  });
+});
+
 // ── start ────────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   res.req = req;
@@ -2252,6 +2330,13 @@ if (require.main === module) {
   seed();
   zorgLokaleServer();
   server.listen(POORT, () => console.log('Werdens Monitor luistert op poort ' + POORT));
+  // De publieke meldpagina op een eigen adres (poort en eventueel eigen IP).
+  // Een fout hier mag het dashboard niet meeslepen: zonder publieke pagina is
+  // het dashboard nog steeds bruikbaar.
+  if (PUBLIEK_POORT > 0 && PUBLIEK_POORT !== POORT) {
+    publiekServer.on('error', (e) => console.error('Publieke meldpagina start niet op ' + PUBLIEK_BIND + ':' + PUBLIEK_POORT + ' — ' + e.message));
+    publiekServer.listen(PUBLIEK_POORT, PUBLIEK_BIND, () => console.log('Publieke meldpagina luistert op ' + PUBLIEK_BIND + ':' + PUBLIEK_POORT));
+  }
   setTimeout(() => meetRonde().catch(() => {}), 1500);
   setTimeout(() => serverRonde().catch(() => {}), 2500);
   setInterval(() => serverRonde().catch(() => {}), 30e3);
@@ -2266,4 +2351,4 @@ if (require.main === module) {
   setInterval(() => db.prepare('DELETE FROM sessies WHERE verloopt < ?').run(nu()), 3600e3);
 }
 
-module.exports = { server, db, app: { overzicht, meetSite, siteBeeld, ticketVanBody, siteVanBody }, tickets, sites, projecten, sessies, meld, apparaten, wachtwoordAfpruk: wachtwoordAfdruk };
+module.exports = { server, publiekServer, db, app: { overzicht, meetSite, siteBeeld, ticketVanBody, siteVanBody }, tickets, sites, projecten, sessies, meld, apparaten, wachtwoordAfpruk: wachtwoordAfdruk };
