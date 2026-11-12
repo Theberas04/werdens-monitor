@@ -421,7 +421,13 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
         { node: 'pve1', status: 'online', level: '' },
         { node: 'pve2', status: 'offline', level: '' },
       ] });
-      if (u === '/api2/json/cluster/resources' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: [] });
+      // Zonder rechten geeft Proxmox 403 op de onderdelen die Sys.Audit vragen.
+      if (u === '/api2/json/cluster/resources' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: null, errors: 'permission denied' }, 403);
+      if (u === '/api2/json/nodes/pve1/status' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: null, errors: 'permission denied' }, 403);
+      // access/permissions: de rechten die de token echt heeft.
+      if (u === '/api2/json/access/permissions' && auth === 'PVEAPIToken=root@pam!monitor=geenrecht') return json({ data: {} });
+      if (u === '/api2/json/access/permissions') return json({ data: { '/': { 'Sys.Audit': 1, 'VM.Audit': 1, 'Datastore.Audit': 1 } } });
+      if (u === '/api2/json/nodes/pve1/status') return json({ data: { cpu: 0.12, mem: 8589934592, maxmem: 34359738368, uptime: 604800 } });
       // Token waarbij /nodes geen cijfers geeft maar /cluster/resources ze wel heeft.
       if (u === '/api2/json/nodes' && auth === 'PVEAPIToken=root@pam!monitor=alleenresources') return json({ data: [
         { node: 'pve1', status: 'online', level: '' },
@@ -498,6 +504,19 @@ test('apparaten: UniFi, TrueNAS en generiek toevoegen, meten en verwijderen', as
     assert.equal(pveRechten.data.apparaat.status, 'fout', 'geen cijfers is een fout');
     assert.match(pveRechten.data.apparaat.fout, /Sys\.Audit|leesrechten/i);
     assert.equal(pveRechten.data.apparaat.data.nodes[0].cpu_pct, null, 'geen verzonnen 0%');
+
+    // De rechten-test laat per endpoint zien wat de token wél en niet mag.
+    const rknSlecht = await alsJson('/api/apparaten/' + pveRechten.data.apparaat.id + '/rechten', { method: 'POST' });
+    assert.equal(rknSlecht.status, 200, 'rechten-test antwoordt');
+    assert.equal(rknSlecht.data.ok, false, 'zonder Sys.Audit is het niet in orde');
+    assert.ok(rknSlecht.data.rijen.some((r) => r.pad === '/cluster/resources' && r.code === 403), 'de 403 is zichtbaar');
+    assert.match(rknSlecht.data.problemen.join(' '), /Sys\.Audit|rechten/i);
+
+    const rknGoed = await alsJson('/api/apparaten/' + pve.data.apparaat.id + '/rechten', { method: 'POST' });
+    assert.equal(rknGoed.status, 200);
+    assert.equal(rknGoed.data.ok, true, 'met de juiste rechten is het in orde');
+    assert.ok(rknGoed.data.rijen.every((r) => r.code === 200), 'alle endpoints 200');
+    assert.equal(rknGoed.data.inloggen, 'token');
 
     // Zonder cijfers in /nodes vullen we aan vanuit /cluster/resources.
     const pveResources = await alsJson('/api/apparaten', { method: 'POST', lichaam: { naam: 'Proxmox alleen resources', soort: 'proxmox', url: adres, gebruiker: 'root@pam!monitor', geheim: 'alleenresources' } });

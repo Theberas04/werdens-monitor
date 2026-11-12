@@ -1539,6 +1539,13 @@ async function verwerk(req, res) {
       const uit = await apparaten.meet(apparaat.id);
       return json(res, 200, { apparaat: uit });
     }
+    // Rechten-test (alleen Proxmox): laat zien wat de token per endpoint mag.
+    if (methode === 'POST' && delen[3] === 'rechten') {
+      if (apparaat.soort !== 'proxmox') return fout(res, 400, 'De rechten-test werkt alleen voor Proxmox VE');
+      try {
+        return json(res, 200, await libApparaten.proxmoxRechten(apparaat));
+      } catch (e) { return fout(res, 400, e.message); }
+    }
     if (methode === 'POST' && delen[3] === 'onderhoud') {
       const body = await leesBody(req).catch(() => null);
       if (!body) return fout(res, 400, 'Ongeldige JSON');

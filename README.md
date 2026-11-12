@@ -199,9 +199,19 @@ de enige weg.
 
 Staat *Privilege Separation* bij het token toch aan, geef het token dan rechten:
 **Datacenter → Permissions → Add → API Token**, pad `/`, rol `PVEAuditor`, en zet
-*Propagate* aan. Zonder die rechten geeft Proxmox wél de nodenamen en de versie
-maar geen cijfers; de monitor zegt dat dan met zoveel woorden in plaats van
-overal 0% te tonen.
+*Propagate* aan. Let op: geef die rol aan **het token** (`root@pam!monitor`) en
+niet aan de gebruiker `root@pam` — met *Privilege Separation* aan gelden alleen de
+rechten van het token zelf. Zonder die rechten geeft Proxmox wél de nodenamen en
+de versie maar geen cijfers; de monitor zegt dat dan met zoveel woorden in plaats
+van overal 0% te tonen.
+
+Twijfel je of het aan de rechten ligt? Open het apparaat en druk op
+**Rechten testen**. Je krijgt per Proxmox-endpoint de HTTP-uitkomst te zien
+(`/version`, `/access/permissions`, `/nodes`, `/cluster/resources`,
+`/nodes/<node>/status`), welke rechten Proxmox voor deze token teruggeeft, en een
+conclusie in gewone taal. Zo zie je het verschil tussen een ongeldig token (401)
+en een geldig token zonder rechten (403) zonder in de Proxmox-GUI te hoeven
+zoeken.
 
 Let op: een Proxmox-host hoort onder **Apparaten**, niet onder *Servers*. Bij
 *Servers* hoort een agent-script op de machine; een Proxmox-host leest de monitor
