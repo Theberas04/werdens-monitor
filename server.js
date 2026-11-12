@@ -215,6 +215,19 @@ function meldAdres() {
   return 'http://' + host + ':' + poort + '/melden';
 }
 
+// Welke IP-adressen heeft deze machine echt? Nodig om te controleren of
+// PUBLIEK_BIND bestaat vóór de publieke luisteraar start; anders faalt hij met
+// EADDRNOTAVAIL en zie je alleen een regel in het log.
+function lokaleAdressen() {
+  return Object.values(os.networkInterfaces()).flat()
+    .filter((n) => n && n.family === 'IPv4' && !n.internal)
+    .map((n) => n.address);
+}
+
+// Of de publieke luisteraar er echt staat. Het dashboard blijft bruikbaar als
+// hij niet start; hier lees je waarom.
+const publiekStatus = { luistert: false, adres: '', fout: '' };
+
 // Onthoud het adres waarmee je binnenkomt, zodat de Slack-link naar de plek
 // wijst waar je de monitor echt opent (bijvoorbeeld achter een reverse proxy).
 function onthoudAdres(req) {
@@ -1296,7 +1309,14 @@ async function verwerk(req, res) {
   // drievoudig: een verborgen veld dat leeg moet blijven (honeypot), een minimale
   // invultijd (een bot verstuurt meteen) en een limiet per IP. De melding landt
   // als ticket met kanaal 'meldpagina', zodat je hem in de lijst herkent.
-  if (pad === '/melden' && (methode === 'GET' || methode === 'HEAD')) return statisch(req, res, '/melden.html');
+  if (pad === '/melden' && (methode === 'GET' || methode === 'HEAD')) {
+    // Staat de meldpagina op een eigen adres, dan hoort het formulier daar en
+    // niet op het dashboard: een oude link stuurt je door naar het echte adres.
+    if (PUBLIEK_BIND && PUBLIEK_BIND !== '0.0.0.0' && PUBLIEK_POORT > 0 && PUBLIEK_POORT !== POORT) {
+      return stuur(res, 302, '', { location: meldAdres() });
+    }
+    return statisch(req, res, '/melden.html');
+  }
   if (pad === '/api/melden/info' && methode === 'GET') {
     return json(res, 200, { categorieen: CATEGORIEEN, bedrijf: 'Werdens Media', pagina: '/melden' });
   }
@@ -2014,6 +2034,10 @@ async function verwerk(req, res) {
       meld_url_actief: meldAdres(),
       publiek_poort: PUBLIEK_POORT,
       publiek_bind: PUBLIEK_BIND,
+      publiek_luistert: publiekStatus.luistert,
+      publiek_adres: publiekStatus.adres,
+      publiek_fout: publiekStatus.fout,
+      publiek_adressen: lokaleAdressen(),
       laatste_adres: instelling('laatste_adres'),
       slack_laatst: instelling('slack_laatst'),
       slack_laatst_fout: instelling('slack_laatst_fout'),
@@ -2334,8 +2358,24 @@ if (require.main === module) {
   // Een fout hier mag het dashboard niet meeslepen: zonder publieke pagina is
   // het dashboard nog steeds bruikbaar.
   if (PUBLIEK_POORT > 0 && PUBLIEK_POORT !== POORT) {
-    publiekServer.on('error', (e) => console.error('Publieke meldpagina start niet op ' + PUBLIEK_BIND + ':' + PUBLIEK_POORT + ' — ' + e.message));
-    publiekServer.listen(PUBLIEK_POORT, PUBLIEK_BIND, () => console.log('Publieke meldpagina luistert op ' + PUBLIEK_BIND + ':' + PUBLIEK_POORT));
+    publiekServer.on('error', (e) => {
+      publiekStatus.luistert = false;
+      publiekStatus.fout = e.message;
+      console.error('Publieke meldpagina start niet op ' + PUBLIEK_BIND + ':' + PUBLIEK_POORT + ' — ' + e.message);
+      if (PUBLIEK_BIND && PUBLIEK_BIND !== '0.0.0.0' && !lokaleAdressen().includes(PUBLIEK_BIND)) {
+        console.error('Het adres ' + PUBLIEK_BIND + ' staat niet op deze machine. Beschikbaar: ' + (lokaleAdressen().join(', ') || 'geen'));
+        console.error('Geef de container eerst dat adres (op de Proxmox-host: bash deploy/proxmox/extra-ip.sh) of zet PUBLIEK_BIND terug op 0.0.0.0.');
+      }
+    });
+    publiekServer.listen(PUBLIEK_POORT, PUBLIEK_BIND, () => {
+      publiekStatus.luistert = true;
+      // Voor de weergave liever een adres dat je echt kunt openen: bij 0.0.0.0
+      // is dat het LAN-adres van deze machine, niet het wilde adres zelf.
+      const lan = lokaleAdressen()[0];
+      const toon = PUBLIEK_BIND && PUBLIEK_BIND !== '0.0.0.0' ? PUBLIEK_BIND : (lan || 'localhost');
+      publiekStatus.adres = 'http://' + toon + ':' + PUBLIEK_POORT;
+      console.log('Publieke meldpagina luistert op ' + PUBLIEK_BIND + ':' + PUBLIEK_POORT + (PUBLIEK_BIND === '0.0.0.0' ? ' (alle adressen)' : ''));
+    });
   }
   setTimeout(() => meetRonde().catch(() => {}), 1500);
   setTimeout(() => serverRonde().catch(() => {}), 2500);

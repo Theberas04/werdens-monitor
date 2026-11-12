@@ -508,15 +508,56 @@ ingress:
   - service: http_status:404
 ```
 
-**Een eigen IP-adres in plaats van een eigen poort.** Wil je de pagina echt op
-een tweede IP hebben, geef de LXC dan een tweede interface (op de Proxmox-host):
+### De meldpagina op een eigen IP-adres
+
+Wil je de pagina niet alleen op een eigen poort, maar op een **eigen IP-adres**
+— bijvoorbeeld omdat je er met Cloudflare een losse website van maakt — dan
+krijgt de container een tweede netwerkkaart. Dat doe je op de **Proxmox-host**,
+niet in de container:
 
 ```bash
-pct set 120 -net1 name=eth1,bridge=vmbr0,ip=192.168.1.121/24
+IP=192.168.1.121 bash <(curl -fsSL https://raw.githubusercontent.com/Theberas04/werdens-monitor/refs/heads/main/deploy/proxmox/extra-ip.sh)
 ```
 
-en zet `PUBLIEK_BIND=192.168.1.121` in `/etc/werdens-monitor.env`. De tunnel
-wijst dan naar `http://192.168.1.121:8081`.
+(Staat de repo al op de host, dan kan het ook met
+`IP=192.168.1.121 bash deploy/proxmox/extra-ip.sh`.)
+
+Het script doet vier dingen en controleert daarna of het werkt:
+
+1. het geeft de container een tweede kaart (`net1`) met dat adres op dezelfde
+   brug als `net0`;
+2. het zet `PUBLIEK_BIND=192.168.1.121` en `PUBLIEK_POORT=8081` in
+   `/etc/werdens-monitor.env`;
+3. het herstart de dienst;
+4. het vraagt `http://192.168.1.121:8081/healthz` op en zegt of de pagina
+   antwoordt.
+
+Daarna:
+
+| Adres | Wat er staat |
+| --- | --- |
+| `http://192.168.1.109:8080` | het dashboard (blijft ongewijzigd) |
+| `http://192.168.1.121:8081` | alleen de meldpagina |
+
+Het dashboard stuurt `/melden` door naar het eigen adres, zodat het formulier
+maar op één plek staat. In *Instellingen* zie je of de luisteraar echt draait
+(`luistert` of `start niet` met de reden) en welke adressen deze machine heeft.
+
+**Opties.** `CTID=120` (standaard 120), `BRIDGE=vmbr0`, `PREFIX=24`,
+`PUBLIEK_POORT=8081`, `KAART=eth1`, `DROOG=1` (alleen laten zien wat er zou
+gebeuren) en `FORCE=1` als het adres al antwoordt maar je zeker weet dat het
+mag. Terugdraaien: `bash deploy/proxmox/extra-ip.sh --verwijderen`.
+
+**Let op.** Het script herstart de container als de nieuwe kaart niet meteen
+zichtbaar is; de monitor komt vanzelf terug (systemd). Staat de firewall van de
+container aan, laat dan poort `8081` toe. Het dashboard blijft op alle adressen
+luisteren; wil je dat ook beperken, zet dan `PORT` achter een firewall of
+reverse proxy.
+
+**Cloudflare.** De tunnel hoeft niet op het tweede adres te staan: wijst hij
+naar `http://192.168.1.121:8081`, dan komt het verkeer van Cloudflare op de
+meldpagina uit en niet op het dashboard. Staat `cloudflared` op deze container,
+dan kan de service ook `http://127.0.0.1:8081` zijn.
 
 **Waarom één proces en geen tweede container.** De meldingen moeten in dezelfde
 database landen; een tweede container zou een tweede database krijgen en dan
@@ -540,7 +581,7 @@ open-status; de twee wacht-statussen zetten de SLA-klok stil.
 ## Ontwikkelen
 
 ```bash
-node --test test/*.test.js       # 32 tests
+node --test test/*.test.js       # 34 tests
 node scripts/seed-demo.js        # demodata in een lege database
 node scripts/record-demo.js uit/frames   # schermopname via CDP
 ```
@@ -563,7 +604,9 @@ lib/slack.js           Slack-webhook: bericht opbouwen en versturen
 public/                index.html (één bestand), melden.html (publieke meldpagina), sw.js, manifest, iconen
 scripts/werdens-agent.js  hardware-agent voor andere servers (geen npm)
 scripts/               seed-demo.js, shoot.js, shoot-slack.js, record-demo.js
-test/                  node:test, 32 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina op eigen adres)
+deploy/                installeer.sh, bijwerken.sh, verwijderen.sh, reset-wachtwoord.sh
+deploy/proxmox/        maak-lxc.sh (nieuwe container), extra-ip.sh (meldpagina op een eigen IP)
+test/                  node:test, 34 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina op eigen adres)
 docs/                  schermafbeeldingen, hero en de demo-video
 ```
 
