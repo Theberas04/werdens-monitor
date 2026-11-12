@@ -31,6 +31,13 @@ token, schrijft zijn onderzoek terug in het ticket en zet de status. De agent
 krijgt precies genoeg: het ticket, het gesprek, de laatste poortscan van dat IP
 en de sites die erop draaien.
 
+**TopDesk-laag** — de tickets zijn een echt servicedesk geworden: prioriteit uit
+impact × urgentie, een SLA per prioriteit met een klok die pauzeert zodra een
+ticket op de klant of de leverancier wacht, een kennisbank met oplossingen die je
+hergebruikt, een rapportage met SLA-gehaald en de verdeling per categorie, en een
+publieke meldpagina waar een klant zelf een melding achterlaat. Zie
+[TopDesk-laag](#topdesk-laag).
+
 **Poortscan** — een IP aftasten op de gebruikelijke poorten meteen bij het
 aanmaken van een ticket, zodat de agent weet wat er open staat.
 
@@ -310,6 +317,14 @@ gebruik daarvoor dit script of **Instellingen → Wachtwoord**.
 |---|---|
 | ![](docs/img/servers-desktop.png) | ![](docs/img/server-detail-desktop.png) |
 
+| Rapportage | Kennisbank |
+|---|---|
+| ![](docs/img/rapportage-desktop.png) | ![](docs/img/kennisbank-desktop.png) |
+
+| Ticketdetail | Publieke meldpagina |
+|---|---|
+| ![](docs/img/ticket-detail-desktop.png) | ![](docs/img/melden-desktop.png) |
+
 | Slack-meldingen |
 |---|
 | ![](docs/img/slack-meldingen.png) |
@@ -408,10 +423,69 @@ gebruikt alleen deze routes, met `Authorization: Bearer <token>`:
 De rest van de API is alleen bereikbaar met een beheerderssessie (HttpOnly-koekje,
 SameSite=Strict). Elke wijziging zit achter dat ene account.
 
+## TopDesk-laag
+
+De ticketmodule is opgezet naar het voorbeeld van TopDesk. Geen TopDesk-code: de
+functies zijn nagemaakt in de eigen stack.
+
+**Prioriteit uit impact × urgentie.** Je kiest bij een ticket de impact (hoeveel
+mensen raakt het) en de urgentie (hoe snel moet het). De prioriteit volgt daaruit
+met dezelfde matrix als in TopDesk: de hoogste van de twee telt zwaarder.
+
+**SLA per prioriteit, met een pauzerende klok.** Elke prioriteit heeft een
+afspraak voor de eerste reactie en voor de oplossing:
+
+| Prioriteit | Eerste reactie | Oplossing |
+|---|---|---|
+| kritiek | 1 uur | 4 uur |
+| hoog | 2 uur | 8 uur |
+| normaal | 4 uur | 24 uur |
+| laag | 8 uur | 48 uur |
+
+Zolang een ticket op **wacht op klant** of **wacht op leverancier** staat, loopt
+de klok niet door. Op het ticketdetail zie je vier klokken: eerste reactie,
+oplossing (met de resterende tijd), verstreken tijd en de afspraak die erbij
+hoort. Naast de statusbalk staat of het ticket binnen de SLA loopt, bijna over
+tijd is of eroverheen is.
+
+**Kennisbank.** Oplossingen die vaker terugkomen zet je als artikel in de
+kennisbank: titel, probleem, oplossing, categorie en trefwoorden. Open je een
+ticket, dan zie je onderaan de artikelen uit dezelfde categorie. Met **Invullen**
+zet je de oplossing in het ticket, met **Gebruikt** houd je bij hoe vaak een
+artikel is toegepast en met **Naar kennisbank** maak je van een opgelost ticket
+in één klik een artikel. Zoeken gaat live op titel, probleem, oplossing en
+trefwoorden.
+
+**Rapportage.** Onder *Tickets → Rapportage* staat wat de SLA-laag bijhoudt: open
+en kritiek open, hoeveel open tickets al over de afspraak zijn, welk percentage
+binnen de SLA is afgerond (eerste reactie én oplossing), gemiddelde reactie- en
+oplostijd, en de verdeling per prioriteit, per categorie en per behandelaar.
+
+**Publieke meldpagina.** Op `/melden` laat een klant of collega zelf een melding
+achter — naam, e-mail, categorie, hoe dringend, onderwerp, omschrijving en
+optioneel een IP-adres. De melding komt binnen als ticket met kanaal
+*meldpagina*, met de klantnaam en het e-mailadres erbij, en verschijnt meteen in
+de lijst. De pagina werkt zonder sessie en is met dezelfde huisstijl opgemaakt.
+Tegen misbruik zitten er drie remmen op: een verborgen veld dat leeg moet blijven
+(honingpot), een minimale invultijd van drie seconden (een bot verstuurt meteen)
+en een limiet per IP (maximaal één per 45 seconden en vijf per uur).
+
+**Ticket maken van een storing.** Op de meldingen-tab heeft elke storing een
+knop **Ticket maken**: de melding komt als eerste systeembericht in het ticket,
+de ernst bepaalt de prioriteit en de soort bepaalt de categorie (een host-melding
+gaat naar netwerk, een certificaatmelding naar website). Bestaat er al een open
+ticket voor die melding, dan opent hij dat in plaats van een tweede aan te maken.
+Op het ticketdetail zie je de oorspronkelijke melding met de ernst en het
+meetmoment.
+
+**Statussen.** *open*, *in behandeling*, *wacht op Tom*, *wacht op klant*,
+*wacht op leverancier*, *opgelost* en *gesloten*. De eerste vier zijn de
+open-status; de twee wacht-statussen zetten de SLA-klok stil.
+
 ## Ontwikkelen
 
 ```bash
-node --test test/*.test.js       # 14 tests
+node --test test/*.test.js       # 24 tests
 node scripts/seed-demo.js        # demodata in een lege database
 node scripts/record-demo.js uit/frames   # schermopname via CDP
 ```
@@ -431,10 +505,10 @@ lib/netwerk.js         subnetten bepalen, adressen aftasten, ARP en reverse DNS
 lib/update.js          nieuwste versie van GitHub halen, uitpakken, herstarten
 lib/apparaten.js       UniFi, TrueNAS en generieke HTTP-apparaten uitlezen
 lib/slack.js           Slack-webhook: bericht opbouwen en versturen
-public/                index.html (één bestand), sw.js, manifest, iconen
+public/                index.html (één bestand), melden.html (publieke meldpagina), sw.js, manifest, iconen
 scripts/werdens-agent.js  hardware-agent voor andere servers (geen npm)
 scripts/               seed-demo.js, shoot.js, shoot-slack.js, record-demo.js
-test/                  node:test, 14 tests
+test/                  node:test, 24 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina)
 docs/                  schermafbeeldingen, hero en de demo-video
 ```
 

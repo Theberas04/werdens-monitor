@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2ea3f2">
+<meta name="robots" content="noindex">
+<title>Een probleem melden — Werdens Media</title>
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+:root{
+  --bg:#f4f7fb; --pane:#ffffff; --line:#e3eaf4; --line2:#cfdaeb;
+  --txt:#0f172a; --muted:#55657f; --muted2:#8296ae;
+  --accent:#2ea3f2; --accent-d:#1e73be; --accent-soft:#e8f4fd;
+  --ok:#059669; --ok-soft:#e6f6ef; --red:#dc2626; --red-soft:#fdeaea;
+  --merk:linear-gradient(118deg,#5ff0e8 0%,#2ea3f2 55%,#1e73be 100%);
+  --r:16px; --schaduw:0 1px 2px rgba(15,23,42,.05),0 12px 28px -20px rgba(15,23,42,.3);
+  --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font);font-size:15px;line-height:1.5;color:var(--txt);
+  background:radial-gradient(1100px 520px at 90% -10%,rgba(95,240,232,.13),transparent 62%),
+             radial-gradient(900px 480px at -8% -4%,rgba(74,76,248,.08),transparent 58%),
+             var(--bg);
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:22px 16px 40px;
+}
+.kop{width:100%;max-width:560px;display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.kop img{width:42px;height:42px;object-fit:contain;flex:none}
+.kop .naam{font-weight:800;font-size:17px;letter-spacing:-.02em;line-height:1.2}
+.kop .sub{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted2);font-weight:700}
+.kaart{width:100%;max-width:560px;background:var(--pane);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:var(--schaduw);overflow:hidden}
+.kaart-kop{height:4px;background:var(--merk)}
+.kaart-body{padding:24px 22px 26px}
+h1{font-size:21px;letter-spacing:-.02em;margin:0 0 6px}
+.intro{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+label.veld{display:block;margin-bottom:14px}
+label.veld>span{display:block;font-size:12px;font-weight:700;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+input,select,textarea{width:100%;font-family:inherit;font-size:15px;color:var(--txt);
+  background:#fff;border:1px solid var(--line2);border-radius:11px;padding:11px 13px;min-height:44px}
+input:focus,select:focus,textarea:focus{outline:0;border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft)}
+textarea{min-height:120px;resize:vertical;line-height:1.5}
+.rij{display:grid;gap:14px}
+@media(min-width:520px){.rij.twee{grid-template-columns:1fr 1fr}}
+button{width:100%;font-family:inherit;font-size:15px;font-weight:700;color:#fff;cursor:pointer;
+  background:var(--merk);border:0;border-radius:11px;padding:13px 18px;min-height:48px;
+  box-shadow:0 8px 18px -12px rgba(30,115,190,.9);transition:filter .15s}
+button:hover{filter:brightness(1.05)}
+button:disabled{opacity:.6;cursor:default;filter:none}
+.hint{font-size:11.5px;color:var(--muted2);margin:14px 0 0}
+.fout{background:var(--red-soft);color:var(--red);border:1px solid #f3cccc;border-radius:11px;
+  padding:11px 13px;font-size:13.5px;margin-bottom:14px}
+.fout[hidden]{display:none}
+/* honingpot: onzichtbaar voor mensen, vindbaar voor bots */
+.honing{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}
+.klaar{text-align:center;padding:34px 22px 30px}
+.klaar .vink{width:56px;height:56px;border-radius:50%;background:var(--ok-soft);color:var(--ok);
+  display:grid;place-items:center;margin:0 auto 16px}
+.klaar h2{font-size:19px;margin:0 0 8px}
+.klaar p{color:var(--muted);font-size:14px;margin:0 0 6px}
+.klaar .nummer{display:inline-block;margin-top:12px;font-weight:800;font-size:15px;
+  background:var(--accent-soft);color:var(--accent-d);border-radius:9px;padding:6px 12px}
+.klaar button{margin-top:22px;background:#fff;color:var(--accent-d);border:1px solid var(--line2);
+  box-shadow:none;font-weight:700}
+.voet{width:100%;max-width:560px;margin-top:18px;font-size:11.5px;color:var(--muted2);text-align:center}
+.voet a{color:var(--accent-d);text-decoration:none}
+</style>
+</head>
+<body>
+  <div class="kop">
+    <img src="/assets/werdens-media-logo.png" alt="Werdens Media">
+    <div>
+      <div class="naam">Werdens Media</div>
+      <div class="sub">ICT &amp; infrastructuur</div>
+    </div>
+  </div>
+
+  <div class="kaart">
+    <div class="kaart-kop"></div>
+    <div class="kaart-body" id="vorm-paneel">
+      <h1>Een probleem melden</h1>
+      <p class="intro">Vul dit in en je melding komt direct in de ICT-wachtrij. Je hoort van ons via het e-mailadres dat je opgeeft.</p>
+      <div class="fout" id="fout" hidden></div>
+      <form id="meldform" autocomplete="off" novalidate>
+        <div class="rij twee">
+          <label class="veld"><span>Je naam</span>
+            <input name="klant_naam" maxlength="80" required placeholder="Voor- en achternaam">
+          </label>
+          <label class="veld"><span>E-mailadres</span>
+            <input name="klant_email" type="email" maxlength="120" required placeholder="naam@bedrijf.nl">
+          </label>
+        </div>
+        <div class="rij twee">
+          <label class="veld"><span>Categorie</span>
+            <select name="categorie" id="categorie"><option value="">Kies een categorie</option></select>
+          </label>
+          <label class="veld"><span>Hoe dringend?</span>
+            <select name="urgentie">
+              <option value="laag">Kan wachten</option>
+              <option value="normaal" selected>Normaal</option>
+              <option value="hoog">Dringend — werk ligt stil</option>
+            </select>
+          </label>
+        </div>
+        <label class="veld"><span>Onderwerp</span>
+          <input name="titel" maxlength="120" required placeholder="Bijv. Website geeft een foutmelding">
+        </label>
+        <label class="veld"><span>Wat is er aan de hand?</span>
+          <textarea name="omschrijving" maxlength="4000" required placeholder="Beschrijf het probleem, sinds wanneer het speelt en wat je al geprobeerd hebt."></textarea>
+        </label>
+        <label class="veld"><span>IP-adres of apparaat <em style="font-weight:400;text-transform:none;letter-spacing:0">(als je het weet)</em></span>
+          <input name="ip" maxlength="60" placeholder="Bijv. 192.168.1.24">
+        </label>
+        <div class="honing" aria-hidden="true">
+          <label>Laat dit veld leeg<input name="website" tabindex="-1" autocomplete="off"></label>
+        </div>
+        <input type="hidden" name="geopend" id="geopend" value="">
+        <button type="submit" id="verstuur">Melding versturen</button>
+        <p class="hint">Je gegevens worden alleen gebruikt om deze melding af te handelen.</p>
+      </form>
+    </div>
+
+    <div class="kaart-body klaar" id="klaar-paneel" hidden>
+      <div class="vink">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+      </div>
+      <h2>Je melding is binnen</h2>
+      <p>We hebben er een ticket van gemaakt en pakken het op tijdens kantooruren.</p>
+      <p style="font-size:12.5px;color:var(--muted2)">Bewaar het nummer hieronder voor het geval we contact opnemen.</p>
+      <div class="nummer" id="nummer">#—</div>
+      <button type="button" id="opnieuw">Nog een melding doen</button>
+    </div>
+  </div>
+
+  <p class="voet">Werdens Media · <a href="https://werdensmedia.nl" rel="noopener">werdensmedia.nl</a></p>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const form = $('#meldform');
+  const foutVak = $('#fout');
+  const knop = $('#verstuur');
+  $('#geopend').value = String(Date.now());
+
+  // Categorieën uit de monitor, zodat de lijst op één plek wordt onderhouden.
+  fetch('/api/melden/info', { headers: { accept: 'application/json' } })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d || !Array.isArray(d.categorieen)) return;
+      const sel = $('#categorie');
+      for (const c of d.categorieen) {
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c.charAt(0).toUpperCase() + c.slice(1);
+        sel.appendChild(o);
+      }
+    })
+    .catch(() => {});
+
+  const toonFout = (tekst) => {
+    foutVak.textContent = tekst;
+    foutVak.hidden = false;
+    foutVak.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    foutVak.hidden = true;
+    const lichaam = Object.fromEntries(new FormData(form).entries());
+    lichaam.geopend = Number(lichaam.geopend) || 0;
+    if (!String(lichaam.klant_naam || '').trim()) return toonFout('Vul je naam in.');
+    if (!String(lichaam.klant_email || '').trim()) return toonFout('Vul je e-mailadres in.');
+    if (!String(lichaam.titel || '').trim()) return toonFout('Vul een onderwerp in.');
+    if (String(lichaam.omschrijving || '').trim().length < 10) return toonFout('Beschrijf het probleem in een paar woorden.');
+    knop.disabled = true;
+    const oud = knop.textContent;
+    knop.textContent = 'Versturen…';
+    try {
+      const r = await fetch('/api/melden', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(lichaam),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.fout || 'De melding kon niet verstuurd worden. Probeer het opnieuw.');
+      $('#nummer').textContent = '#' + (d.ticket ? d.ticket.id : '—');
+      $('#vorm-paneel').hidden = true;
+      $('#klaar-paneel').hidden = false;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      toonFout(err.message);
+    } finally {
+      knop.disabled = false;
+      knop.textContent = oud;
+    }
+  });
+
+  $('#opnieuw').addEventListener('click', () => {
+    form.reset();
+    $('#geopend').value = String(Date.now());
+    $('#klaar-paneel').hidden = true;
+    $('#vorm-paneel').hidden = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+</body>
+</html>

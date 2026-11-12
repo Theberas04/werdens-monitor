@@ -129,6 +129,7 @@ kolomErbij('alerts', 'bevestigd_door', "TEXT NOT NULL DEFAULT ''");
 kolomErbij('alerts', 'notitie', "TEXT NOT NULL DEFAULT ''");
 kolomErbij('alerts', 'gemeld_op', "TEXT NOT NULL DEFAULT ''");
 kolomErbij('alerts', 'meldingen', 'INTEGER NOT NULL DEFAULT 0');
+kolomErbij('alerts', 'ticket_id', 'INTEGER NOT NULL DEFAULT 0');
 // Oude meldingen hebben nog geen ernst of meldmoment; vul die één keer in zodat
 // het problemenoverzicht en de escalatie meteen kloppen.
 for (const [soort, ernst] of Object.entries({
@@ -169,6 +170,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS kennisbank(
   id INTEGER PRIMARY KEY AUTOINCREMENT, titel TEXT NOT NULL, probleem TEXT NOT NULL DEFAULT '',
   oplossing TEXT NOT NULL, categorie TEXT NOT NULL DEFAULT '', trefwoorden TEXT NOT NULL DEFAULT '',
   gebruikt INTEGER NOT NULL DEFAULT 0, aangemaakt TEXT NOT NULL);`);
+// Elke inzending van de publieke meldpagina, met het IP erbij: dat is de rem
+// tegen geautomatiseerd misbruik (max. 1 per 45 seconden en 5 per uur).
+db.exec(`CREATE TABLE IF NOT EXISTS meldpogingen(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL DEFAULT '', op TEXT NOT NULL);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_meldpogingen ON meldpogingen(ip, op)`);
 
 const nu = () => new Date().toISOString();
 function instelling(sleutel, standaard = '') {
@@ -619,7 +625,7 @@ const hosts = {
     const laatsteScan = host.laatste_scan || '';
     const onderhoud = hosts.onderhoud(host.ip);
     const sitesOpHost = hosts.sitesOp(host.ip);
-    const openTickets = tickets.lijst('WHERE t.ip=? AND t.status IN (\'open\',\'in behandeling\',\'wacht op Tom\')', [host.ip]);
+    const openTickets = tickets.lijst('WHERE t.ip=? AND t.status IN (\'open\',\'in behandeling\',\'wacht op Tom\',\'wacht op klant\',\'wacht op leverancier\')', [host.ip]);
     const uit = {
       ip: host.ip, naam: host.naam || '', hostnaam: host.hostnaam || '', notitie: host.notitie || '',
       actief: !!host.actief, interval_s: host.interval_s, laatste_scan: laatsteScan,
@@ -823,22 +829,32 @@ function hostVanBody(body, bestaand = null) {
 }
 
 // ── tickets ──────────────────────────────────────────────────────────────────
-const STATUSSEN = ['open', 'in behandeling', 'wacht op Tom', 'opgelost', 'gesloten'];
+// 'wacht op klant' en 'wacht op leverancier' zetten de SLA-klok stil. Ze horen
+// dus in dezelfde lijst als de andere statussen: stonden ze er niet in, dan kon
+// de UI ze nooit zetten en liep de pauzelogica nooit.
+const STATUSSEN = ['open', 'in behandeling', 'wacht op Tom', 'wacht op klant', 'wacht op leverancier', 'opgelost', 'gesloten'];
+const OPEN_STATUS = ['open', 'in behandeling', 'wacht op Tom', 'wacht op klant', 'wacht op leverancier'];
 const PRIORITEITEN = ['laag', 'normaal', 'hoog', 'kritiek'];
 
 const tickets = {
   lijst(where = '', params = []) {
     return db.prepare(`SELECT t.*, (SELECT COUNT(*) FROM berichten b WHERE b.ticket_id=t.id) berichten
       FROM tickets t ${where} ORDER BY CASE t.status WHEN 'open' THEN 0 WHEN 'in behandeling' THEN 1
-      WHEN 'wacht op Tom' THEN 2 WHEN 'opgelost' THEN 3 ELSE 4 END,
+      WHEN 'wacht op Tom' THEN 2 WHEN 'wacht op klant' THEN 3 WHEN 'wacht op leverancier' THEN 4
+      WHEN 'opgelost' THEN 5 ELSE 6 END,
       CASE t.prioriteit WHEN 'kritiek' THEN 0 WHEN 'hoog' THEN 1 WHEN 'normaal' THEN 2 ELSE 3 END, t.id DESC`).all(...params);
   },
   een(id) { return db.prepare('SELECT * FROM tickets WHERE id=?').get(Number(id)); },
   berichten(id) { return db.prepare('SELECT * FROM berichten WHERE ticket_id=? ORDER BY id').all(Number(id)); },
-  voegBerichtToe(id, auteur, rol, bericht) {
+  // 'reactie' is onwaar voor de eerste beschrijving bij het aanmaken: die telt
+  // niet als eerste reactie naar de melder, anders is de reactie-SLA altijd 0.
+  voegBerichtToe(id, auteur, rol, bericht, reactie = true) {
+    const op = nu();
     db.prepare('INSERT INTO berichten(ticket_id,auteur,rol,bericht,op) VALUES(?,?,?,?,?)')
-      .run(Number(id), auteur.slice(0, 60), rol, bericht.slice(0, 4000), nu());
-    db.prepare('UPDATE tickets SET bijgewerkt=? WHERE id=?').run(nu(), Number(id));
+      .run(Number(id), String(auteur).slice(0, 60), rol, bericht.slice(0, 4000), op);
+    db.prepare(`UPDATE tickets SET bijgewerkt=?,
+      eerste_reactie_op=CASE WHEN ?=1 AND (eerste_reactie_op='' OR eerste_reactie_op IS NULL) THEN ? ELSE eerste_reactie_op END
+      WHERE id=?`).run(op, reactie ? 1 : 0, op, Number(id));
   },
   context(ticket) {
     const hostRij = ticket.ip ? hosts.een(ticket.ip) : null;
@@ -851,6 +867,31 @@ const tickets = {
       sites: passendeSites,
       projecten: db.prepare('SELECT naam,versie,commit_sha,ci_status,bijgewerkt FROM projecten ORDER BY bijgewerkt DESC LIMIT 20').all(),
     };
+  },
+};
+
+// ── kennisbank (TopDesk-achtig: oplossingen die je hergebruikt) ──────────────
+// Een artikel hoort bij een categorie, zodat een nieuw ticket meteen de passende
+// oplossingen ziet. 'gebruikt' telt hoe vaak een artikel is toegepast.
+const kennisbank = {
+  lijst(zoek = '') {
+    const q = tekst(zoek, 120);
+    if (!q) return db.prepare('SELECT * FROM kennisbank ORDER BY gebruikt DESC, id DESC').all();
+    const like = '%' + q + '%';
+    return db.prepare(`SELECT * FROM kennisbank WHERE titel LIKE ? OR probleem LIKE ?
+      OR oplossing LIKE ? OR trefwoorden LIKE ? OR categorie LIKE ?
+      ORDER BY gebruikt DESC, id DESC`).all(like, like, like, like, like);
+  },
+  een(id) { return db.prepare('SELECT * FROM kennisbank WHERE id=?').get(Number(id)); },
+  gebruik(id) { db.prepare('UPDATE kennisbank SET gebruikt = gebruikt + 1 WHERE id=?').run(Number(id)); },
+  artikelVanBody(body) {
+    const titel = tekst(body.titel, 160);
+    if (!titel) throw new Error('Titel is verplicht');
+    const oplossing = tekst(body.oplossing, 8000);
+    if (!oplossing) throw new Error('Oplossing is verplicht');
+    const c = String(body.categorie || '').toLowerCase();
+    if (c && !CATEGORIEEN.includes(c)) throw new Error('Onbekende categorie');
+    return { titel, probleem: tekst(body.probleem, 4000), oplossing, categorie: c, trefwoorden: tekst(body.trefwoorden, 200) };
   },
 };
 
@@ -949,6 +990,72 @@ function ticketBeeld(t) {
     categorie: t.categorie || '', subcategorie: t.subcategorie || '',
     sla: s, sla_label: SLA_LABEL[t.prioriteit] || SLA_LABEL.normaal,
     wacht: STATUS_PAUZE.includes(t.status),
+    categorie_label: t.categorie || 'geen categorie',
+  };
+}
+
+// ── rapportage (TopDesk-achtig: SLA gehaald, openstaand, per categorie) ─────
+// De SLA wordt per ticket berekend en hier opgeteld. Alleen afgeronde tickets
+// tellen mee voor 'gehaald'; openstaande tickets tellen mee als ze al over tijd zijn.
+function rapport() {
+  const rijen = tickets.lijst().map(ticketBeeld);
+  const isKlaar = (t) => t.status === 'opgelost' || t.status === 'gesloten';
+  const klaar = rijen.filter(isKlaar);
+  const open = rijen.filter((t) => OPEN_STATUS.includes(t.status));
+  const gem = (waarden) => {
+    const g = waarden.filter((v) => typeof v === 'number' && Number.isFinite(v));
+    return g.length ? Math.round(g.reduce((a, b) => a + b, 0) / g.length) : null;
+  };
+  const pct = (deel, geheel) => (geheel ? Math.round((deel / geheel) * 100) : null);
+  const gehaald = (t) => t.sla.oplossing === 'gehaald';
+  const perPrioriteit = PRIORITEITEN.map((prio) => {
+    const af = klaar.filter((t) => t.prioriteit === prio);
+    const goed = af.filter(gehaald).length;
+    const nogOpen = open.filter((t) => t.prioriteit === prio);
+    return {
+      prioriteit: prio, sla_label: SLA_LABEL[prio],
+      klaar: af.length, gehaald: goed, percentage: pct(goed, af.length),
+      open: nogOpen.length, te_laat: nogOpen.filter((t) => t.sla.oplossing === 'overschreden').length,
+      gemiddeld_min: gem(af.map((t) => t.sla.verstreken)),
+    };
+  });
+  const perCategorie = (c) => {
+    const lijst = rijen.filter((t) => (t.categorie || '') === c);
+    const af = lijst.filter(isKlaar);
+    const goed = af.filter(gehaald).length;
+    return {
+      categorie: c || 'geen categorie', totaal: lijst.length,
+      open: lijst.filter((t) => OPEN_STATUS.includes(t.status)).length,
+      klaar: af.length, gehaald: goed, percentage: pct(goed, af.length),
+      gemiddeld_min: gem(af.map((t) => t.sla.verstreken)),
+    };
+  };
+  const categorieen = CATEGORIEEN.map(perCategorie).filter((c) => c.totaal > 0);
+  const zonder = perCategorie('');
+  if (zonder.totaal) categorieen.push(zonder);
+  return {
+    samenvatting: {
+      totaal: rijen.length, open: open.length, klaar: klaar.length,
+      kritiek_open: open.filter((t) => t.prioriteit === 'kritiek').length,
+      wacht: open.filter((t) => t.wacht).length,
+      te_laat_open: open.filter((t) => t.sla.oplossing === 'overschreden').length,
+      zonder_eigenaar: open.filter((t) => !t.behandelaar).length,
+      sla_oplossing_pct: pct(klaar.filter(gehaald).length, klaar.length),
+      sla_reactie_pct: pct(klaar.filter((t) => t.sla.reactie === 'gehaald').length, klaar.length),
+      eerste_reactie_gem: gem(klaar.map((t) => t.sla.eerste_reactie)),
+      oplossing_gem: gem(klaar.map((t) => t.sla.verstreken)),
+    },
+    per_prioriteit: perPrioriteit,
+    per_categorie: categorieen,
+    per_behandelaar: BEHANDELAARS.map((b) => ({ behandelaar: b, open: open.filter((t) => t.behandelaar === b).length })).filter((b) => b.open > 0),
+    recent_klaar: klaar.slice(0, 8).map((t) => ({
+      id: t.id, titel: t.titel, categorie: t.categorie || '', opgelost_op: t.opgelost_op,
+      verstreken: t.sla.verstreken, gehaald: gehaald(t), prioriteit: t.prioriteit,
+    })),
+    kennisbank: {
+      artikelen: db.prepare('SELECT COUNT(*) n FROM kennisbank').get().n,
+      gebruikt: db.prepare('SELECT COALESCE(SUM(gebruikt),0) n FROM kennisbank').get().n,
+    },
   };
 }
 
@@ -1023,7 +1130,7 @@ function statisch(req, res, pad) {
 function overzicht() {
   const siteLijst = sites.lijst().map((s) => ({ ...siteBeeld(s), geschiedenis: sites.geschiedenis(s.id, 26) }));
   const ticketLijst = tickets.lijst();
-  const open = ticketLijst.filter((t) => ['open', 'in behandeling', 'wacht op Tom'].includes(t.status));
+  const open = ticketLijst.filter((t) => OPEN_STATUS.includes(t.status));
   const neer = siteLijst.filter((s) => s.actief && (!s.laatste || !s.laatste.ok));
   const projectenLijst = projecten.lijst();
   const hostRijen = hosts.lijst();
@@ -1053,6 +1160,24 @@ function overzicht() {
     hosts: hostBeelden, alerts: alertsOpen.slice(0, 8),
     gebeurtenissen: db.prepare('SELECT * FROM gebeurtenissen ORDER BY id DESC LIMIT 6').all(),
   };
+}
+
+// Een melding heeft een eigen soort; dat vertaalt zich naar een categorie en
+// een prioriteit. Zo landt een "host neer" meteen in de juiste bak.
+function categorieVanSoort(soort) {
+  const s = String(soort || '').toLowerCase();
+  if (s.includes('site') || s.includes('certificaat') || s.includes('tls')) return 'website';
+  if (s.includes('host') || s.includes('poort') || s.includes('neer') || s.includes('ping')) return 'netwerk';
+  if (s.includes('server') || s.includes('cpu') || s.includes('geheugen') || s.includes('schijf') || s.includes('gpu')) return 'server';
+  if (s.includes('mail') || s.includes('smtp')) return 'e-mail';
+  return 'overig';
+}
+function prioriteitVanErnst(ernst) {
+  const e = String(ernst || '').toLowerCase();
+  if (e === 'kritiek') return 'kritiek';
+  if (e === 'hoog') return 'hoog';
+  if (e === 'laag' || e === 'info') return 'laag';
+  return 'normaal';
 }
 
 async function verwerk(req, res) {
@@ -1151,6 +1276,61 @@ async function verwerk(req, res) {
     const token = sessies.maak();
     const koek = `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSIE_UREN * 3600}`;
     return json(res, 200, { ok: true, naam: instelling('admin_naam', 'tom') }, { 'set-cookie': koek });
+  }
+
+  // ── publieke meldpagina ────────────────────────────────────────────────────
+  // Zonder sessie: een klant of collega meldt een probleem. De rem tegen spam is
+  // drievoudig: een verborgen veld dat leeg moet blijven (honeypot), een minimale
+  // invultijd (een bot verstuurt meteen) en een limiet per IP. De melding landt
+  // als ticket met kanaal 'meldpagina', zodat je hem in de lijst herkent.
+  if (pad === '/melden' && (methode === 'GET' || methode === 'HEAD')) return statisch(req, res, '/melden.html');
+  if (pad === '/api/melden/info' && methode === 'GET') {
+    return json(res, 200, { categorieen: CATEGORIEEN, bedrijf: 'Werdens Media', pagina: '/melden' });
+  }
+  if (pad === '/api/melden' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    // Honeypot: een bot vult het verborgen veld in. Stil aannemen, niets bewaren.
+    if (tekst(body.website, 120)) return json(res, 200, { ok: true });
+    const geopend = Number(body.geopend) || 0;
+    const verstreken = Date.now() - geopend;
+    if (!geopend || verstreken < 3000) return fout(res, 400, 'Het formulier is te snel verstuurd. Probeer het opnieuw.');
+    if (verstreken > 6 * 3600e3) return fout(res, 400, 'Het formulier is verlopen. Laad de pagina opnieuw.');
+    const ip = bezoekerIp(req);
+    db.prepare('DELETE FROM meldpogingen WHERE op < ?').run(new Date(Date.now() - 3600e3).toISOString());
+    const laatste = db.prepare('SELECT op FROM meldpogingen WHERE ip=? ORDER BY id DESC LIMIT 1').get(ip);
+    if (laatste && Date.now() - Date.parse(laatste.op) < 45000) {
+      return fout(res, 429, 'Er is net al een melding verstuurd. Probeer het over een minuut opnieuw.');
+    }
+    const aantal = db.prepare('SELECT COUNT(*) n FROM meldpogingen WHERE ip=?').get(ip).n;
+    if (aantal >= 5) return fout(res, 429, 'Te veel meldingen vanaf dit adres. Probeer het later opnieuw.');
+    let t;
+    try { t = ticketVanBody({ ...body, titel: body.titel || body.onderwerp, status: 'open' }); }
+    catch (e) { return fout(res, 400, e.message); }
+    const impact = ['laag', 'normaal', 'hoog'].includes(body.impact) ? body.impact : 'normaal';
+    const urgentie = ['laag', 'normaal', 'hoog'].includes(body.urgentie) ? body.urgentie : 'normaal';
+    const prioriteit = prioriteitUit(impact, urgentie);
+    const categorie = CATEGORIEEN.includes(String(body.categorie || '').toLowerCase()) ? String(body.categorie).toLowerCase() : '';
+    db.prepare('INSERT INTO meldpogingen(ip,op) VALUES(?,?)').run(ip, nu());
+    const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
+      impact,urgentie,categorie,subcategorie,kanaal,klant_naam,klant_email,soort)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, 'open', nu(), nu(),
+      impact, urgentie, categorie, tekst(body.subcategorie, 60), 'meldpagina',
+      tekst(body.klant_naam, 80), tekst(body.klant_email, 120), 'incident');
+    if (t.omschrijving) {
+      tickets.voegBerichtToe(r.lastInsertRowid, tekst(body.klant_naam, 80) || 'Melder', 'klant', t.omschrijving, false);
+    }
+    db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+      .run(nu(), 'melding', t.ip, 'Melding via de publieke pagina: ' + t.titel);
+    if (slackIngesteld()) {
+      try {
+        await slack.stuur(instelling('slack_webhook'), {
+          tekst: 'Nieuwe melding #' + r.lastInsertRowid + ': ' + t.titel + ' (prioriteit ' + prioriteit + ')',
+          blokken: [{ type: 'section', text: { type: 'mrkdwn', text: ':inbox_tray: *Nieuwe melding #' + r.lastInsertRowid + '*\n' + t.titel + '\nPrioriteit: *' + prioriteit + '*' + (t.ip ? '\nIP: ' + t.ip : '') } }],
+        });
+      } catch (e) { console.error('Slack-bericht over nieuwe melding mislukt: ' + e.message); }
+    }
+    return json(res, 201, { ok: true, ticket: { id: r.lastInsertRowid, titel: t.titel, prioriteit } });
   }
 
   // Hardware-agent: elke server heeft zijn eigen token, geen beheerderssessie.
@@ -1267,10 +1447,11 @@ async function verwerk(req, res) {
     const prioriteit = body.prioriteit && PRIORITEITEN.includes(body.prioriteit)
       ? body.prioriteit : prioriteitUit(impact, urgentie);
     const categorie = CATEGORIEEN.includes(String(body.categorie || '').toLowerCase()) ? String(body.categorie).toLowerCase() : '';
+    const behandelaar = BEHANDELAARS.includes(body.behandelaar) ? body.behandelaar : '';
     const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
-      impact,urgentie,categorie,subcategorie,kanaal,klant_naam,klant_email,soort)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, t.status, nu(), nu(),
-      impact, urgentie, categorie, tekst(body.subcategorie, 60), tekst(body.kanaal, 40) || 'dashboard',
+      impact,urgentie,categorie,subcategorie,behandelaar,kanaal,klant_naam,klant_email,soort)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, t.status, nu(), nu(),
+      impact, urgentie, categorie, tekst(body.subcategorie, 60), behandelaar, tekst(body.kanaal, 40) || 'dashboard',
       tekst(body.klant_naam, 80), tekst(body.klant_email, 120), body.soort === 'change' ? 'change' : 'incident');
     const ticket = tickets.een(r.lastInsertRowid);
     // Change-ticket: meteen een onderhoudsvenster, zodat de meldingen stil zijn.
@@ -1284,8 +1465,8 @@ async function verwerk(req, res) {
           .run(van, tot, o.lastInsertRowid, ticket.id);
       }
     }
-    if (t.omschrijving) tickets.voegBerichtToe(ticket.id, 'Tom', 'tom', t.omschrijving);
-    return json(res, 201, { ticket });
+    if (t.omschrijving) tickets.voegBerichtToe(ticket.id, 'Tom', 'tom', t.omschrijving, false);
+    return json(res, 201, { ticket: ticketBeeld(tickets.een(ticket.id)) });
   }
   if (delen[1] === 'tickets' && delen[2]) {
     const ticket = tickets.een(delen[2]);
@@ -1294,7 +1475,15 @@ async function verwerk(req, res) {
       const kennis = ticket.categorie
         ? db.prepare("SELECT * FROM kennisbank WHERE categorie=? ORDER BY gebruikt DESC, id DESC LIMIT 5").all(ticket.categorie)
         : db.prepare('SELECT * FROM kennisbank ORDER BY gebruikt DESC, id DESC LIMIT 5').all();
-      return json(res, 200, { ticket: ticketBeeld(ticket), berichten: tickets.berichten(ticket.id), context: tickets.context(ticket), kennis });
+      const alert = ticket.alert_id
+        ? db.prepare('SELECT * FROM alerts WHERE id=?').get(ticket.alert_id)
+        : db.prepare('SELECT * FROM alerts WHERE ticket_id=? ORDER BY id DESC LIMIT 1').get(ticket.id);
+      return json(res, 200, {
+        ticket: ticketBeeld(ticket), berichten: tickets.berichten(ticket.id), context: tickets.context(ticket),
+        kennis, alert: alert || null,
+        statussen: STATUSSEN, prioriteiten: PRIORITEITEN, categorieen: CATEGORIEEN, behandelaars: BEHANDELAARS,
+        sla_label: SLA_LABEL,
+      });
     }
     if (methode === 'PATCH' && !delen[3]) {
       const body = await leesBody(req).catch(() => null);
@@ -1311,8 +1500,16 @@ async function verwerk(req, res) {
       }
       if (body.titel !== undefined) { const t = tekst(body.titel, 120); if (!t) return fout(res, 400, 'Titel is verplicht'); velden.push('titel=?'); waarden.push(t); }
       if (body.ai_onderzoek !== undefined) { velden.push('ai_onderzoek=?'); waarden.push(tekst(body.ai_onderzoek, 8000)); }
-      for (const [veld, kolom] of [['behandelaar', 'behandelaar'], ['subcategorie', 'subcategorie'], ['oplossing', 'oplossing'], ['sluitreden', 'sluitreden']]) {
+      for (const [veld, kolom] of [['behandelaar', 'behandelaar'], ['subcategorie', 'subcategorie'], ['oplossing', 'oplossing'],
+        ['sluitreden', 'sluitreden'], ['kanaal', 'kanaal'], ['klant_naam', 'klant_naam'], ['klant_email', 'klant_email']]) {
         if (body[veld] !== undefined) { velden.push(kolom + '=?'); waarden.push(tekst(body[veld], veld === 'oplossing' ? 8000 : 120)); }
+      }
+      if (body.behandelaar !== undefined && body.behandelaar && !BEHANDELAARS.includes(body.behandelaar)) {
+        return fout(res, 400, 'Onbekende behandelaar');
+      }
+      if (body.soort !== undefined) {
+        if (!['incident', 'change'].includes(body.soort)) return fout(res, 400, 'Onbekend ticketsoort');
+        velden.push('soort=?'); waarden.push(body.soort);
       }
       if (body.categorie !== undefined) {
         const c = String(body.categorie || '').toLowerCase();
@@ -1327,29 +1524,90 @@ async function verwerk(req, res) {
         if (!['laag', 'normaal', 'hoog'].includes(body.urgentie)) return fout(res, 400, 'Onbekende urgentie');
         velden.push('urgentie=?'); waarden.push(body.urgentie);
       }
+      // De eerste reactie is het eerste echte antwoord aan de melder. Een
+      // statuswijziging weg van 'open' geldt ook als reactie (je pakt het op).
+      if (body.status !== undefined && body.status !== 'open' && !ticket.eerste_reactie_op) {
+        velden.push('eerste_reactie_op=?'); waarden.push(nu());
+      }
       if (!velden.length) return fout(res, 400, 'Niets te wijzigen');
       // De klok pauzeert bij 'wacht op klant' en 'wacht op leverancier'.
       if (body.status !== undefined) pauzeer(ticket, body.status);
       velden.push('bijgewerkt=?'); waarden.push(nu()); waarden.push(ticket.id);
       db.prepare('UPDATE tickets SET ' + velden.join(',') + ' WHERE id=?').run(...waarden);
-      return json(res, 200, { ticket: tickets.een(ticket.id) });
+      return json(res, 200, { ticket: ticketBeeld(tickets.een(ticket.id)) });
     }
     if (methode === 'POST' && delen[3] === 'berichten') {
       const body = await leesBody(req).catch(() => null);
       const bericht = tekst(body && body.bericht, 4000);
       if (!bericht) return fout(res, 400, 'Bericht is leeg');
-      const rol = body.rol === 'agent' ? 'agent' : 'tom';
-      tickets.voegBerichtToe(ticket.id, rol === 'agent' ? 'AI-agent' : 'Tom', rol, bericht);
+      const rol = ['agent', 'klant', 'systeem'].includes(body.rol) ? body.rol : 'tom';
+      const auteur = rol === 'agent' ? 'AI-agent' : rol === 'klant' ? (ticket.klant_naam || 'Klant') : rol === 'systeem' ? 'Monitor' : 'Tom';
+      tickets.voegBerichtToe(ticket.id, tekst(body.auteur, 60) || auteur, rol, bericht);
       if (body.status && STATUSSEN.includes(body.status)) {
         db.prepare('UPDATE tickets SET status=? WHERE id=?').run(body.status, ticket.id);
       }
-      return json(res, 201, { ticket: tickets.een(ticket.id), berichten: tickets.berichten(ticket.id) });
+      return json(res, 201, { ticket: ticketBeeld(tickets.een(ticket.id)), berichten: tickets.berichten(ticket.id) });
+    }
+    // Een opgelost ticket is de beste bron voor een kennisbankartikel.
+    if (methode === 'POST' && delen[3] === 'kennisbank') {
+      const body = await leesBody(req).catch(() => ({}));
+      const oplossing = tekst(body.oplossing, 8000) || ticket.oplossing;
+      if (!oplossing) return fout(res, 400, 'Vul eerst een oplossing in bij het ticket, of geef er een mee');
+      const titel = tekst(body.titel, 160) || ticket.titel;
+      const r = db.prepare(`INSERT INTO kennisbank(titel,probleem,oplossing,categorie,trefwoorden,gebruikt,aangemaakt)
+        VALUES(?,?,?,?,?,?,?)`).run(titel, tekst(body.probleem, 4000) || ticket.omschrijving,
+        oplossing, ticket.categorie || '', tekst(body.trefwoorden, 200), 0, nu());
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'kennisbank', ticket.ip, 'Artikel gemaakt van ticket #' + ticket.id + ': ' + titel);
+      return json(res, 201, { artikel: kennisbank.een(r.lastInsertRowid) });
     }
     if (methode === 'DELETE' && !delen[3]) {
       db.prepare('DELETE FROM berichten WHERE ticket_id=?').run(ticket.id);
       db.prepare('DELETE FROM tickets WHERE id=?').run(ticket.id);
       return json(res, 200, { ok: true });
     }
+  }
+
+  // ── kennisbank: eigen artikelen met oplossingen ────────────────────────────
+  if (pad === '/api/kennisbank' && methode === 'GET') {
+    const zoek = url.searchParams.get('q') || '';
+    return json(res, 200, { artikelen: kennisbank.lijst(zoek), categorieen: CATEGORIEEN, zoek });
+  }
+  if (pad === '/api/kennisbank' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    let artikel;
+    try { artikel = kennisbank.artikelVanBody(body); } catch (e) { return fout(res, 400, e.message); }
+    const r = db.prepare(`INSERT INTO kennisbank(titel,probleem,oplossing,categorie,trefwoorden,gebruikt,aangemaakt)
+      VALUES(?,?,?,?,?,?,?)`).run(artikel.titel, artikel.probleem, artikel.oplossing,
+      artikel.categorie, artikel.trefwoorden, 0, nu());
+    return json(res, 201, { artikel: kennisbank.een(r.lastInsertRowid) });
+  }
+  if (delen[1] === 'kennisbank' && delen[2]) {
+    const artikel = kennisbank.een(delen[2]);
+    if (!artikel) return fout(res, 404, 'Artikel niet gevonden');
+    if (methode === 'POST' && delen[3] === 'gebruikt') {
+      kennisbank.gebruik(artikel.id);
+      return json(res, 200, { artikel: kennisbank.een(artikel.id) });
+    }
+    if (methode === 'PATCH' && !delen[3]) {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      let nieuw;
+      try { nieuw = kennisbank.artikelVanBody({ ...artikel, ...body }); } catch (e) { return fout(res, 400, e.message); }
+      db.prepare('UPDATE kennisbank SET titel=?, probleem=?, oplossing=?, categorie=?, trefwoorden=? WHERE id=?')
+        .run(nieuw.titel, nieuw.probleem, nieuw.oplossing, nieuw.categorie, nieuw.trefwoorden, artikel.id);
+      return json(res, 200, { artikel: kennisbank.een(artikel.id) });
+    }
+    if (methode === 'DELETE' && !delen[3]) {
+      db.prepare('DELETE FROM kennisbank WHERE id=?').run(artikel.id);
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  // ── rapportage: SLA gehaald, openstaand, per categorie ─────────────────────
+  if (pad === '/api/rapport' && methode === 'GET') {
+    return json(res, 200, rapport());
   }
 
   // ── IP-adressen ────────────────────────────────────────────────────────────
@@ -1628,6 +1886,36 @@ async function verwerk(req, res) {
       db.prepare("UPDATE alerts SET bevestigd=0, bevestigd_op='', bevestigd_door='' WHERE id=?").run(id);
       return json(res, 200, { alert: db.prepare('SELECT * FROM alerts WHERE id=?').get(id) });
     }
+    // Van een storing een ticket maken: de melding gaat mee als eerste bericht,
+    // de ernst bepaalt de prioriteit en de soort bepaalt de categorie. Bestaat er
+    // al een open ticket voor deze melding, dan geven we dat terug in plaats van
+    // een tweede aan te maken.
+    if (delen[3] === 'ticket') {
+      if (alert.ticket_id) {
+        const bestaand = tickets.een(alert.ticket_id);
+        if (bestaand && !['opgelost', 'gesloten'].includes(bestaand.status)) {
+          return json(res, 200, { ticket: ticketBeeld(bestaand), bestond: true });
+        }
+      }
+      const titel = tekst(alert.bericht, 120) || 'Melding ' + alert.soort;
+      const dubbel = db.prepare("SELECT id FROM tickets WHERE alert_id=? AND status NOT IN ('opgelost','gesloten')").get(alert.id);
+      if (dubbel) return json(res, 200, { ticket: ticketBeeld(tickets.een(dubbel.id)), bestond: true });
+      const ernst = alert.ernst || ernstVan(alert.soort);
+      const prioriteit = prioriteitVanErnst(ernst);
+      const impact = prioriteit === 'kritiek' ? 'hoog' : prioriteit === 'hoog' ? 'hoog' : prioriteit === 'laag' ? 'laag' : 'normaal';
+      const urgentie = prioriteit === 'kritiek' || prioriteit === 'hoog' ? 'hoog' : 'normaal';
+      const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
+        impact,urgentie,categorie,subcategorie,kanaal,soort,alert_id)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(alert.ip, titel,
+        'Automatisch aangemaakt van melding #' + alert.id + ' (' + alert.soort + ').', prioriteit, 'open', nu(), nu(),
+        impact, urgentie, categorieVanSoort(alert.soort), alert.soort, 'monitoring', 'incident', alert.id);
+      db.prepare('UPDATE alerts SET ticket_id=?, gezien=1 WHERE id=?').run(r.lastInsertRowid, alert.id);
+      tickets.voegBerichtToe(r.lastInsertRowid, 'Monitor', 'systeem',
+        'Melding: ' + alert.soort + ' — ' + alert.bericht + ' (gemeten ' + alert.op + ', ernst ' + ernst + ')', false);
+      db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+        .run(nu(), 'ticket', alert.ip, 'Ticket #' + r.lastInsertRowid + ' gemaakt van melding #' + alert.id);
+      return json(res, 201, { ticket: ticketBeeld(tickets.een(r.lastInsertRowid)) });
+    }
     return fout(res, 404, 'Onbekende actie');
   }
 
@@ -1876,7 +2164,7 @@ async function agentRoutes(req, res, delen, url) {
       const status = url.searchParams.get('status');
       const lijst = status
         ? tickets.lijst('WHERE t.status=?', [status])
-        : tickets.lijst("WHERE t.status IN ('open','in behandeling','wacht op Tom')");
+        : tickets.lijst("WHERE t.status IN ('open','in behandeling','wacht op Tom','wacht op klant','wacht op leverancier')");
       return json(res, 200, { tickets: lijst });
     }
     if (methode === 'POST') {
@@ -1902,7 +2190,7 @@ async function agentRoutes(req, res, delen, url) {
       tickets.voegBerichtToe(ticket.id, 'AI-agent', 'agent', bericht);
       if (body.status && STATUSSEN.includes(body.status)) db.prepare('UPDATE tickets SET status=? WHERE id=?').run(body.status, ticket.id);
       if (body.ai_onderzoek !== undefined) db.prepare('UPDATE tickets SET ai_onderzoek=? WHERE id=?').run(tekst(body.ai_onderzoek, 8000), ticket.id);
-      return json(res, 201, { ticket: tickets.een(ticket.id), berichten: tickets.berichten(ticket.id) });
+      return json(res, 201, { ticket: ticketBeeld(tickets.een(ticket.id)), berichten: tickets.berichten(ticket.id) });
     }
     if (methode === 'PATCH' && !delen[4]) {
       const body = await leesBody(req).catch(() => null);
@@ -1910,7 +2198,7 @@ async function agentRoutes(req, res, delen, url) {
       if (body.status && !STATUSSEN.includes(body.status)) return fout(res, 400, 'Onbekende status');
       if (body.status) db.prepare('UPDATE tickets SET status=?, bijgewerkt=? WHERE id=?').run(body.status, nu(), ticket.id);
       if (body.ai_onderzoek !== undefined) db.prepare('UPDATE tickets SET ai_onderzoek=? WHERE id=?').run(tekst(body.ai_onderzoek, 8000), ticket.id);
-      return json(res, 200, { ticket: tickets.een(ticket.id) });
+      return json(res, 200, { ticket: ticketBeeld(tickets.een(ticket.id)) });
     }
   }
   if (delen[2] === 'scan' && methode === 'POST') {

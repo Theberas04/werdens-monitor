@@ -177,6 +177,209 @@ test('tickets: aanmaken, berichten, status en agent-token', async () => {
   assert.equal(geenBeheer.status, 401, 'agent-token geeft geen beheerdersrechten');
 });
 
+test('TopDesk: prioriteit uit impact en urgentie, SLA en de pauzerende klok', async () => {
+  // impact x urgentie: hoog x hoog hoort kritiek te zijn, niet 'normaal'.
+  const gemaakt = await alsJson('/api/tickets', {
+    method: 'POST',
+    lichaam: { titel: 'Mailserver ligt plat', impact: 'hoog', urgentie: 'hoog', categorie: 'e-mail', behandelaar: 'Tom', omschrijving: 'Niemand kan mailen.' },
+  });
+  assert.equal(gemaakt.status, 201);
+  const t = gemaakt.data.ticket;
+  assert.equal(t.prioriteit, 'kritiek', 'hoog x hoog geeft kritiek');
+  assert.equal(t.categorie, 'e-mail');
+  assert.equal(t.behandelaar, 'Tom');
+  assert.equal(t.sla_label, '1 uur / 4 uur');
+  assert.equal(t.sla.eerste_reactie, null, 'de eerste beschrijving telt niet als eerste reactie');
+  assert.ok(t.sla.afspraak && t.sla.afspraak.oplos === 240, 'de SLA hangt aan de prioriteit');
+
+  // Pauzeren: 'wacht op klant' moet gezet kunnen worden en de klok stilzetten.
+  const pauze = await alsJson('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { status: 'wacht op klant' } });
+  assert.equal(pauze.status, 200, 'wacht op klant is een geldige status');
+  assert.equal(pauze.data.ticket.status, 'wacht op klant');
+  assert.equal(pauze.data.ticket.wacht, true);
+  const rij = db.prepare('SELECT pauze_sinds, eerste_reactie_op FROM tickets WHERE id=?').get(t.id);
+  assert.ok(rij.pauze_sinds, 'de pauze is geregistreerd');
+  assert.ok(rij.eerste_reactie_op, 'opakken telt als eerste reactie');
+
+  const hervat = await alsJson('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { status: 'in behandeling' } });
+  assert.equal(hervat.data.ticket.wacht, false);
+  const na = db.prepare('SELECT pauze_sinds FROM tickets WHERE id=?').get(t.id);
+  assert.equal(na.pauze_sinds, '', 'na hervatten loopt de klok weer');
+
+  // Afronden met een oplossing: de SLA wordt dan definitief beoordeeld.
+  const klaar = await alsJson('/api/tickets/' + t.id, {
+    method: 'PATCH', lichaam: { status: 'opgelost', oplossing: 'Postfix herstart en de wachtrij geleegd.', sluitreden: 'opgelost' },
+  });
+  assert.equal(klaar.status, 200);
+  assert.equal(klaar.data.ticket.status, 'opgelost');
+  assert.equal(klaar.data.ticket.oplossing, 'Postfix herstart en de wachtrij geleegd.');
+  assert.ok(['gehaald', 'overschreden'].includes(klaar.data.ticket.sla.oplossing));
+
+  // Onbekende impact/urgentie/behandelaar horen te worden geweigerd.
+  assert.equal((await alsJson('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { impact: 'enorm' } })).status, 400);
+  assert.equal((await alsJson('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { behandelaar: 'Iemand anders' } })).status, 400);
+
+  // Een change-ticket opent een onderhoudsvenster.
+  const van = new Date(Date.now() - 60000).toISOString();
+  const tot = new Date(Date.now() + 3600e3).toISOString();
+  const change = await alsJson('/api/tickets', {
+    method: 'POST',
+    lichaam: { titel: 'Switch vervangen', ip: '192.168.1.51', soort: 'change', change_van: van, change_tot: tot, categorie: 'netwerk' },
+  });
+  assert.equal(change.status, 201);
+  assert.equal(change.data.ticket.soort, 'change');
+  const onderhoud = await alsJson('/api/onderhoud');
+  assert.ok(onderhoud.data.onderhoud.some((o) => o.ip === '192.168.1.51'), 'change maakt een onderhoudsvenster');
+});
+
+test('kennisbank: artikel maken, zoeken, gebruiken en van een ticket', async () => {
+  const leeg = await alsJson('/api/kennisbank', { method: 'POST', lichaam: { titel: 'Zonder oplossing' } });
+  assert.equal(leeg.status, 400, 'een artikel zonder oplossing is waardeloos');
+
+  const gemaakt = await alsJson('/api/kennisbank', {
+    method: 'POST',
+    lichaam: { titel: 'Website geeft 502 na herstart', probleem: 'Na een herstart antwoordt de proxy met 502.', oplossing: 'Wacht 20 seconden tot de app klaar is met starten; herstart daarna pas de proxy.', categorie: 'website', trefwoorden: 'proxy 502 herstart' },
+  });
+  assert.equal(gemaakt.status, 201);
+  const artikel = gemaakt.data.artikel;
+  assert.equal(artikel.gebruikt, 0);
+
+  const lijst = await alsJson('/api/kennisbank?q=proxy');
+  assert.ok(lijst.data.artikelen.some((a) => a.id === artikel.id), 'zoeken op trefwoord vindt het artikel');
+  assert.ok(Array.isArray(lijst.data.categorieen));
+
+  const gebruikt = await alsJson('/api/kennisbank/' + artikel.id + '/gebruikt', { method: 'POST', lichaam: {} });
+  assert.equal(gebruikt.status, 200);
+  assert.equal(gebruikt.data.artikel.gebruikt, 1);
+
+  const gewijzigd = await alsJson('/api/kennisbank/' + artikel.id, { method: 'PATCH', lichaam: { titel: 'Proxy geeft 502 na herstart' } });
+  assert.equal(gewijzigd.status, 200);
+  assert.equal(gewijzigd.data.artikel.titel, 'Proxy geeft 502 na herstart');
+
+  // Van een opgelost ticket een artikel maken: de titel en categorie komen mee.
+  const ticket = await alsJson('/api/tickets', {
+    method: 'POST', lichaam: { titel: 'Printer offline', categorie: 'hardware', omschrijving: 'De printer is niet bereikbaar.', impact: 'laag', urgentie: 'laag' },
+  });
+  const id = ticket.data.ticket.id;
+  await alsJson('/api/tickets/' + id, { method: 'PATCH', lichaam: { status: 'opgelost', oplossing: 'Printer uit en aan, daarna vast IP gegeven.' } });
+  const vanTicket = await alsJson('/api/tickets/' + id + '/kennisbank', { method: 'POST', lichaam: {} });
+  assert.equal(vanTicket.status, 201, 'een opgelost ticket levert een artikel op');
+  assert.equal(vanTicket.data.artikel.titel, 'Printer offline');
+  assert.equal(vanTicket.data.artikel.categorie, 'hardware');
+  assert.match(vanTicket.data.artikel.oplossing, /vast IP/);
+
+  const weg = await alsJson('/api/kennisbank/' + vanTicket.data.artikel.id, { method: 'DELETE' });
+  assert.equal(weg.status, 200);
+  const na = await alsJson('/api/kennisbank?q=Printer');
+  assert.ok(!na.data.artikelen.some((a) => a.id === vanTicket.data.artikel.id));
+});
+
+test('rapportage: SLA gehaald, per categorie en openstaand', async () => {
+  const gemaakt = await alsJson('/api/tickets', {
+    method: 'POST', lichaam: { titel: 'Trage site na update', categorie: 'website', impact: 'normaal', urgentie: 'normaal', omschrijving: 'Laden duurt lang.' },
+  });
+  const id = gemaakt.data.ticket.id;
+  await alsJson('/api/tickets/' + id, { method: 'PATCH', lichaam: { status: 'opgelost', oplossing: 'Cache geleegd.' } });
+
+  const r = await alsJson('/api/rapport');
+  assert.equal(r.status, 200);
+  const s = r.data.samenvatting;
+  assert.ok(s.totaal >= 1);
+  assert.ok(s.klaar >= 1);
+  assert.equal(typeof s.sla_oplossing_pct, 'number');
+  assert.equal(r.data.per_prioriteit.length, 4);
+  const website = r.data.per_categorie.find((c) => c.categorie === 'website');
+  assert.ok(website, 'de categorie website staat in de rapportage');
+  assert.ok(website.klaar >= 1);
+  assert.ok(website.gehaald >= 1);
+  assert.ok(r.data.kennisbank && typeof r.data.kennisbank.artikelen === 'number');
+  // De regels voor de rapportage zijn ook via de agent te lezen? Nee: beheerder only.
+});
+
+test('publieke meldpagina: pagina, info en inzenden met spamrem', async () => {
+  const pagina = await fetch(basis + '/melden');
+  assert.equal(pagina.status, 200, 'de meldpagina is openbaar');
+  const html = await pagina.text();
+  assert.match(html, /Een probleem melden/);
+  assert.match(html, /\/api\/melden/);
+
+  const info = await alsJson('/api/melden/info');
+  assert.equal(info.status, 200);
+  assert.ok(Array.isArray(info.data.categorieen) && info.data.categorieen.includes('netwerk'));
+
+  const voor = db.prepare('SELECT COUNT(*) n FROM tickets').get().n;
+
+  // Honeypot gevuld: stil aannemen, niets bewaren.
+  const bot = await alsJson('/api/melden', {
+    method: 'POST',
+    lichaam: { titel: 'Bot', klant_naam: 'Bot', klant_email: 'bot@example.com', omschrijving: 'Spam spam spam spam', website: 'http://spam.example', geopend: Date.now() - 10000 },
+  });
+  assert.equal(bot.status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM tickets').get().n, voor, 'de honeypot bewaart niets');
+
+  // Te snel ingestuurd: weigeren.
+  const snel = await alsJson('/api/melden', {
+    method: 'POST',
+    lichaam: { titel: 'Snel', klant_naam: 'Snel', klant_email: 'snel@example.com', omschrijving: 'Dit gaat veel te snel.', geopend: Date.now() },
+  });
+  assert.equal(snel.status, 400);
+
+  // Gewone inzending: landt als ticket met kanaal 'meldpagina'.
+  const goed = await alsJson('/api/melden', {
+    method: 'POST',
+    lichaam: {
+      titel: 'Beamer in vergaderruimte doet niets', klant_naam: 'Sanne de Vries', klant_email: 'sanne@example.com',
+      categorie: 'hardware', urgentie: 'hoog', omschrijving: 'De beamer geeft geen beeld meer sinds vanmorgen. Ik heb de kabel al vervangen.',
+      ip: '', geopend: Date.now() - 8000,
+    },
+  });
+  assert.equal(goed.status, 201);
+  const id = goed.data.ticket.id;
+  const detail = await alsJson('/api/tickets/' + id);
+  assert.equal(detail.data.ticket.kanaal, 'meldpagina');
+  assert.equal(detail.data.ticket.klant_naam, 'Sanne de Vries');
+  assert.equal(detail.data.ticket.categorie, 'hardware');
+  assert.equal(detail.data.berichten[0].rol, 'klant', 'de melding staat als klantbericht in het ticket');
+
+  // Meteen daarna nog een inzending vanaf hetzelfde adres mag niet.
+  const teVeel = await alsJson('/api/melden', {
+    method: 'POST',
+    lichaam: { titel: 'Nog een', klant_naam: 'Sanne', klant_email: 'sanne@example.com', omschrijving: 'Nog een melding meteen.', geopend: Date.now() - 8000 },
+  });
+  assert.equal(teVeel.status, 429, 'de limiet per IP werkt');
+});
+
+test('ticket maken van een melding', async () => {
+  db.prepare("INSERT INTO alerts(ip,soort,bericht,op,ernst,gemeld_op) VALUES(?,?,?,?,?,?)")
+    .run('192.168.1.60', 'host neer', 'Host 192.168.1.60 antwoordt niet', new Date().toISOString(), 'kritiek', new Date().toISOString());
+  const alert = db.prepare('SELECT * FROM alerts ORDER BY id DESC LIMIT 1').get();
+
+  const gemaakt = await alsJson('/api/problemen/' + alert.id + '/ticket', { method: 'POST', lichaam: {} });
+  assert.equal(gemaakt.status, 201);
+  const t = gemaakt.data.ticket;
+  assert.equal(t.prioriteit, 'kritiek', 'ernst kritiek geeft prioriteit kritiek');
+  assert.equal(t.categorie, 'netwerk', 'een host-melding hoort bij netwerk');
+  assert.equal(t.ip, '192.168.1.60');
+  assert.equal(t.kanaal, 'monitoring');
+
+  const na = db.prepare('SELECT ticket_id, gezien FROM alerts WHERE id=?').get(alert.id);
+  assert.equal(na.ticket_id, t.id, 'de melding wijst naar het ticket');
+  assert.equal(na.gezien, 1);
+
+  // Nog eens: geen tweede ticket, maar hetzelfde terug.
+  const nogEens = await alsJson('/api/problemen/' + alert.id + '/ticket', { method: 'POST', lichaam: {} });
+  assert.equal(nogEens.status, 200);
+  assert.equal(nogEens.data.ticket.id, t.id);
+  assert.equal(nogEens.data.bestond, true);
+
+  const detail = await alsJson('/api/tickets/' + t.id);
+  assert.ok(detail.data.alert, 'het ticketdetail laat de oorspronkelijke melding zien');
+  assert.equal(detail.data.alert.id, alert.id);
+  const eerste = detail.data.berichten[0];
+  assert.equal(eerste.rol, 'systeem');
+  assert.match(eerste.bericht, /host neer/);
+});
+
 test('host aftasten weigert onzin en accepteert een lokaal adres', async () => {
   const fout = await alsJson('/api/hosts/scan', { method: 'POST', lichaam: { ip: 'niet-een-ip' } });
   assert.equal(fout.status, 400);

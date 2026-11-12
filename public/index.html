@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.8.3">
+<meta name="version" content="1.9.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -225,6 +225,43 @@ details.uitklap .binnen{padding:16px}
 .ticket-rij .titel{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ticket-rij .meta{font-size:12px;color:var(--muted2);display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px}
 .ticket-rij .meta .mono{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.ticket-rij .rechts{align-self:center;flex:none;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+/* subnavigatie binnen een tab (Tickets / Rapportage / Kennisbank) */
+.seg{display:flex;gap:3px;background:var(--pane3);border:1px solid var(--line);border-radius:12px;
+  padding:4px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+.seg::-webkit-scrollbar{display:none}
+.seg button{flex:1;min-width:0;white-space:nowrap;background:transparent;border:0;color:var(--muted);
+  font-family:inherit;font-weight:600;font-size:13px;padding:9px 12px;border-radius:9px;min-height:38px;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.seg button:hover{color:var(--txt)}
+.seg button.actief{background:var(--pane);color:var(--accent);box-shadow:var(--schaduw)}
+.seg .tel{font-size:11px;font-weight:700;background:var(--pane3);border:1px solid var(--line);
+  border-radius:20px;padding:0 6px;color:var(--muted);font-variant-numeric:tabular-nums}
+.seg button.actief .tel{background:var(--accent-soft);border-color:transparent;color:var(--accent-d)}
+/* SLA-klok: vier blokjes met de resterende tijd en de status */
+.sla{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(min-width:720px){.sla{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.sla-klok{background:var(--pane2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
+.sla-klok .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--muted2)}
+.sla-klok .v{font-size:16px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.sla-klok .n{font-size:11px;color:var(--muted2);margin-top:1px}
+.sla-klok.op-tijd .v{color:var(--ok)}
+.sla-klok.bijna .v{color:var(--amber)}
+.sla-klok.overschreden .v{color:var(--red)}
+.sla-klok.gehaald .v{color:var(--ok)}
+.sla-balk{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:8px}
+.sla-balk i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.sla-balk.bijna i{background:var(--amber)}
+.sla-balk.overschreden i{background:var(--red)}
+/* kennisbank */
+.kb-kaart{border-top:1px solid var(--line);padding:14px 16px}
+.kb-kaart:first-child{border-top:0}
+.kb-kop{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:5px}
+.kb-kop b{font-size:13.5px}
+.kb-tekst{font-size:12.5px;color:var(--muted);white-space:pre-wrap;line-height:1.45}
+.kb-gebruik{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.prio-uitkomst{font-size:12.5px;color:var(--muted);margin-top:-4px;margin-bottom:12px}
+.prio-uitkomst b{color:var(--txt)}
 .ticket-kop{display:flex;flex-direction:column;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}
 .ticket-kop h2{font-size:19px;margin:0;letter-spacing:-.01em}
 .ticket-kop .sub{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--muted2)}
@@ -389,9 +426,10 @@ p.leeg{color:var(--muted2)}
 .knop.gevaar{background:var(--red-soft);border-color:#f3c9c9;color:var(--red)}
 .knop.gevaar:hover{background:#fbdcdc}
 
-input,select,textarea{background:var(--pane);border:1px solid var(--line2);color:var(--txt)}
+input,select,textarea{background-color:var(--pane);border:1px solid var(--line2);color:var(--txt)}
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%238296ae' stroke-width='2'><path d='M3 5l4 4 4-4'/></svg>")}
+select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%238296ae' stroke-width='2'><path d='M3 5l4 4 4-4'/></svg>");
+  background-repeat:no-repeat;background-position:right 11px center;padding-right:32px}
 
 details.uitklap{background:var(--pane);border-color:var(--line)}
 details.uitklap[open]>summary{border-color:var(--line)}
@@ -807,6 +845,10 @@ $('#vernieuw').addEventListener('click', () => laadHuidig(true));
 let huidigeTab = 'overzicht';
 let siteDetail = null;
 let ticketDetail = null;
+let ticketWeergave = 'tickets';   // 'tickets' | 'rapport' | 'kennisbank'
+let ticketOpenAantal = 0;
+let kennisCache = [];
+let kbZoek = '';
 const laders = {};
 
 $('#tabs').addEventListener('click', (e) => {
@@ -830,7 +872,12 @@ function laadHuidig(metKracht = false) {
   else if (huidigeTab === 'apparaten') apparaatDetail ? laadApparaatDetail(apparaatDetail) : laadApparaten();
   else if (huidigeTab === 'meldingen') laadMeldingen();
   else if (huidigeTab === 'grafieken') laadGrafieken();
-  else if (huidigeTab === 'tickets') ticketDetail ? laadTicketDetail(ticketDetail) : laadTickets();
+  else if (huidigeTab === 'tickets') {
+    if (ticketDetail) laadTicketDetail(ticketDetail);
+    else if (ticketWeergave === 'rapport') laadRapport();
+    else if (ticketWeergave === 'kennisbank') laadKennisbank();
+    else laadTickets();
+  }
   else laadInstellingen();
 }
 function zetTeller(id, aantal, alarm = false) {
@@ -1343,6 +1390,8 @@ function meldingRij(a) {
     + '<span class="melding-acties">'
     + (a.bevestigd ? '<button class="knop stil klein" data-terugzetten="' + a.id + '">Bevestiging intrekken</button>'
         : '<button class="knop klein" data-bevestig="' + a.id + '">Bevestigen</button>')
+    + (a.ticket_id ? '<button type="button" class="knop klein stil" data-ticket-open="' + a.ticket_id + '">Ticket #' + a.ticket_id + '</button>'
+        : '<button type="button" class="knop klein" data-ticket-maken="' + a.id + '">Ticket maken</button>')
     + '<button class="knop klein" data-oplossen="' + a.id + '">Oplossen</button>'
     + '</span></div>'
     + (a.notitie ? '<div class="hint" style="margin-top:4px">Notitie: ' + esc(a.notitie) + '</div>' : '')
@@ -1392,6 +1441,29 @@ async function laadMeldingen() {
   document.querySelectorAll('[data-bevestig]').forEach((b) => b.addEventListener('click', () => bevestigMelding(Number(b.dataset.bevestig))));
   document.querySelectorAll('[data-terugzetten]').forEach((b) => b.addEventListener('click', () => bevestigMelding(Number(b.dataset.terugzetten), true)));
   document.querySelectorAll('[data-oplossen]').forEach((b) => b.addEventListener('click', () => oplossenMelding(Number(b.dataset.oplossen))));
+  document.querySelectorAll('[data-ticket-maken]').forEach((b) => b.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    b.classList.add('bezig');
+    try {
+      const r = await api('/api/problemen/' + b.dataset.ticketMaken + '/ticket', { method: 'POST', lichaam: {} });
+      toast(r.bestond ? 'Ticket #' + r.ticket.id + ' bestond al' : 'Ticket #' + r.ticket.id + ' gemaakt');
+      huidigeTab = 'tickets';
+      ticketWeergave = 'tickets';
+      ticketDetail = String(r.ticket.id);
+      document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('actief', x.dataset.tab === 'tickets'));
+      laadHuidig();
+    } catch (err) { toast(err.message, true); b.classList.remove('bezig'); }
+  }));
+  document.querySelectorAll('[data-ticket-open]').forEach((b) => b.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    huidigeTab = 'tickets';
+    ticketWeergave = 'tickets';
+    ticketDetail = String(b.dataset.ticketOpen);
+    document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('actief', x.dataset.tab === 'tickets'));
+    laadHuidig();
+  }));
   const plan = $('#ond-plannen');
   if (plan) plan.addEventListener('click', toonOnderhoudForm);
 }
@@ -1453,35 +1525,187 @@ async function toonOnderhoudForm() {
 
 // ── tickets ──────────────────────────────────────────────────────────────────
 let ticketCache = [];
+// ── Tickets, rapportage en kennisbank (TopDesk-laag) ────────────────────────
+// Eén tab met drie weergaven. De subnavigatie staat bovenaan, zodat je niet
+// hoeft te raden waar de rapportage of de kennisbank is gebleven.
+const OPEN_STATUSSEN = ['open', 'in behandeling', 'wacht op Tom', 'wacht op klant', 'wacht op leverancier'];
+const STATUS_KLEUR = {
+  'open': 'amber', 'in behandeling': 'blauw', 'wacht op Tom': 'blauw',
+  'wacht op klant': 'amber', 'wacht op leverancier': 'amber', 'opgelost': 'groen', 'gesloten': '',
+};
+const SOORT_LABEL_TICKET = { incident: 'Incident', change: 'Change' };
+
+// Dezelfde matrix als de server: impact x urgentie, de hoogste van de twee telt
+// zwaarder. Zo zie je in het formulier meteen wat de prioriteit wordt.
+function prioriteitUit(impact, urgentie) {
+  const volg = ['laag', 'normaal', 'hoog'];
+  const i = volg.indexOf(String(impact || 'normaal'));
+  const u = volg.indexOf(String(urgentie || 'normaal'));
+  const score = Math.max(i, u) + Math.min(i, u);
+  if (score >= 4) return 'kritiek';
+  if (score >= 2) return 'hoog';
+  if (score >= 1) return 'normaal';
+  return 'laag';
+}
+function slaKlasse(tekst) {
+  if (tekst === 'overschreden') return 'overschreden';
+  if (tekst === 'bijna') return 'bijna';
+  if (tekst === 'gehaald' || tekst === 'op tijd') return 'gehaald';
+  return 'op-tijd';
+}
+function minutenTekst(m) {
+  if (m === null || m === undefined) return '—';
+  const n = Number(m);
+  if (!Number.isFinite(n)) return '—';
+  if (n < 60) return n + ' min';
+  const uur = Math.floor(n / 60);
+  const rest = n % 60;
+  if (uur < 24) return uur + ' u' + (rest ? ' ' + rest + ' m' : '');
+  const dag = Math.floor(uur / 24);
+  return dag + ' d' + (uur % 24 ? ' ' + (uur % 24) + ' u' : '');
+}
+function opties(lijst, huidig, leegLabel) {
+  const eerste = leegLabel === undefined ? '' : '<option value="">' + esc(leegLabel) + '</option>';
+  return eerste + lijst.map((w) => '<option value="' + esc(w) + '"' + (w === huidig ? ' selected' : '') + '>' + esc(w) + '</option>').join('');
+}
+
+function ticketNav() {
+  const knop = (sleutel, label, aantal) => '<button type="button" data-tseg="' + sleutel + '"'
+    + (ticketWeergave === sleutel ? ' class="actief"' : '') + '>' + label
+    + (aantal !== undefined && aantal !== null ? '<span class="tel">' + aantal + '</span>' : '') + '</button>';
+  return '<div class="seg" id="ticket-seg">' + knop('tickets', 'Tickets', ticketOpenAantal)
+    + knop('rapport', 'Rapportage') + knop('kennisbank', 'Kennisbank', kennisCache.length || null) + '</div>';
+}
+function koppelTicketNav() {
+  const seg = $('#ticket-seg');
+  if (!seg) return;
+  seg.querySelectorAll('[data-tseg]').forEach((b) => b.addEventListener('click', () => {
+    ticketWeergave = b.dataset.tseg;
+    ticketDetail = null;
+    laadHuidig();
+  }));
+}
+
+// De SLA-klokken: eerste reactie, oplossing met de resterende tijd, verstreken
+// tijd en de afspraak die erbij hoort. De balk laat zien hoeveel van de
+// oplostijd al gebruikt is.
+function slaBlok(t) {
+  const s = t.sla || {};
+  const afspraak = s.afspraak || { reactie: 0, oplos: 0 };
+  const klaar = t.status === 'opgelost' || t.status === 'gesloten';
+  const klok = (k, v, n, klasse) => '<div class="sla-klok ' + slaKlasse(klasse) + '">'
+    + '<div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="n">' + esc(n) + '</div></div>';
+  const gebruikt = afspraak.oplos ? Math.min(100, Math.round(((s.verstreken || 0) / afspraak.oplos) * 100)) : 0;
+  return '<div class="sla">'
+    + klok('Eerste reactie', s.eerste_reactie === null || s.eerste_reactie === undefined ? 'nog niet' : minutenTekst(s.eerste_reactie),
+      'afspraak ' + minutenTekst(afspraak.reactie), s.reactie)
+    + klok('Oplossing', klaar ? 'afgerond' : 'nog ' + minutenTekst(s.resterend),
+      'afspraak ' + minutenTekst(afspraak.oplos), s.oplossing)
+    + klok('Verstreken', minutenTekst(s.verstreken), t.wacht ? 'klok staat stil' : 'klok loopt', s.oplossing)
+    + klok('SLA', t.sla_label || '—', klaar ? (s.oplossing === 'gehaald' ? 'binnen de afspraak' : 'over de afspraak') : 'prioriteit ' + t.prioriteit, s.oplossing)
+    + '</div>'
+    + '<div class="sla-balk ' + slaKlasse(s.oplossing) + '" title="' + gebruikt + '% van de oplostijd gebruikt"><i style="width:' + gebruikt + '%"></i></div>';
+}
+
+function ticketRij(t) {
+  const s = t.sla || {};
+  const klaar = t.status === 'opgelost' || t.status === 'gesloten';
+  const tekst = t.wacht ? 'klok stil'
+    : s.oplossing === 'overschreden' ? 'over SLA'
+    : s.oplossing === 'bijna' ? 'bijna over SLA'
+    : klaar ? 'binnen SLA' : 'binnen SLA';
+  const kleur = s.oplossing === 'overschreden' ? 'rood' : s.oplossing === 'bijna' ? 'amber' : klaar ? 'groen' : '';
+  return '<div class="ticket-rij" data-ticket="' + t.id + '">'
+    + '<span class="prio ' + esc(t.prioriteit) + '"></span>'
+    + '<div class="midden"><div class="titel">#' + t.id + ' ' + esc(t.titel) + '</div>'
+    + '<div class="meta">'
+    + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '')
+    + chip(t.status, STATUS_KLEUR[t.status] || '')
+    + (t.prioriteit !== 'normaal' ? chip(t.prioriteit, t.prioriteit === 'kritiek' ? 'rood' : 'amber') : '')
+    + (t.categorie ? '<span>' + esc(t.categorie) + '</span>' : '')
+    + (t.behandelaar ? '<span>' + esc(t.behandelaar) + '</span>' : '')
+    + '<span>' + (t.berichten || 0) + ' bericht' + ((t.berichten || 0) === 1 ? '' : 'en') + '</span>'
+    + '<span>' + geleden(t.aangemaakt) + '</span></div></div>'
+    + '<div class="rechts">' + chip(tekst, kleur) + '</div></div>';
+}
+
+function ticketFormulier() {
+  return '<details class="uitklap"' + (ticketCache.length ? '' : ' open') + '><summary>' + ico.plus
+    + ' Nieuw ticket<span class="plus">+</span></summary><div class="binnen">'
+    + '<form id="ticketform" class="form-rij">'
+    + '<div class="form-rij twee"><label class="veld"><span>Titel</span>'
+    + '<input name="titel" required maxlength="120" placeholder="Bijv. Website reageert niet na update"></label>'
+    + '<label class="veld"><span>IP-adres</span><input name="ip" maxlength="60" placeholder="192.168.1.24"></label></div>'
+    + '<div class="form-rij drie">'
+    + '<label class="veld"><span>Impact (hoeveel mensen raakt het)</span><select name="impact" id="impact">'
+    + '<option value="laag">laag — één persoon</option><option value="normaal" selected>normaal — een team</option>'
+    + '<option value="hoog">hoog — iedereen</option></select></label>'
+    + '<label class="veld"><span>Urgentie (hoe snel moet het)</span><select name="urgentie" id="urgentie">'
+    + '<option value="laag">laag — kan wachten</option><option value="normaal" selected>normaal</option>'
+    + '<option value="hoog">hoog — werk ligt stil</option></select></label>'
+    + '<label class="veld"><span>Categorie</span><select name="categorie">'
+    + '<option value="">geen categorie</option>' + (window.TICKET_CATEGORIEEN || []).map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') + '</select></label>'
+    + '</div>'
+    + '<p class="prio-uitkomst" id="prio-uitkomst">Prioriteit wordt <b>normaal</b>.</p>'
+    + '<div class="form-rij drie">'
+    + '<label class="veld"><span>Behandelaar</span><select name="behandelaar"><option value="">nog niet toegewezen</option>'
+    + (window.TICKET_BEHANDELAARS || []).map((b) => '<option value="' + esc(b) + '">' + esc(b) + '</option>').join('') + '</select></label>'
+    + '<label class="veld"><span>Soort</span><select name="soort" id="ticket-soort"><option value="incident">incident</option><option value="change">change (met onderhoudsvenster)</option></select></label>'
+    + '<label class="veld"><span>Kanaal</span><select name="kanaal"><option value="dashboard">dashboard</option><option value="telefoon">telefoon</option><option value="e-mail">e-mail</option><option value="meldpagina">meldpagina</option><option value="monitoring">monitoring</option></select></label>'
+    + '</div>'
+    + '<div class="form-rij twee">'
+    + '<label class="veld"><span>Klantnaam (optioneel)</span><input name="klant_naam" maxlength="80" placeholder="Wie meldt het"></label>'
+    + '<label class="veld"><span>E-mailadres (optioneel)</span><input name="klant_email" type="email" maxlength="120" placeholder="naam@bedrijf.nl"></label>'
+    + '</div>'
+    + '<div class="form-rij twee" id="change-velden" style="display:none">'
+    + '<label class="veld"><span>Onderhoud vanaf</span><input name="change_van" type="datetime-local"></label>'
+    + '<label class="veld"><span>Onderhoud tot</span><input name="change_tot" type="datetime-local"></label>'
+    + '</div>'
+    + '<label class="veld"><span>Wat moet de agent uitzoeken?</span>'
+    + '<textarea name="omschrijving" maxlength="4000" placeholder="Beschrijf het probleem, wat je al geprobeerd hebt en wat je verwacht."></textarea></label>'
+    + '<div id="scan-uit"></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Ticket aanmaken</button>'
+    + '<button class="knop" type="button" id="scan-knop">' + ico.span + 'IP aftasten</button></div>'
+    + '</form></div></details>';
+}
+
 async function laadTickets(voorgevuld = null) {
+  ticketWeergave = 'tickets';
   beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Tickets laden…</p></div></div>';
   try {
     const d = await api('/api/tickets');
     ticketCache = d.tickets;
-    zetTeller('tab-tickets', ticketCache.filter((t) => ['open', 'in behandeling', 'wacht op Tom'].includes(t.status)).length, ticketCache.some((t) => t.prioriteit === 'kritiek' && t.status !== 'gesloten'));
-    const rijen = ticketCache.map((t) => '<div class="ticket-rij" data-ticket="' + t.id + '">'
-      + '<span class="prio ' + esc(t.prioriteit) + '"></span><div class="midden">'
-      + '<div class="titel">#' + t.id + ' ' + esc(t.titel) + '</div>'
-      + '<div class="meta">' + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '<span>geen IP</span>')
-      + chip(t.status, t.status === 'open' ? 'amber' : t.status === 'opgelost' ? 'groen' : t.status === 'gesloten' ? '' : 'blauw')
-      + (t.prioriteit !== 'normaal' ? chip(t.prioriteit, t.prioriteit === 'kritiek' ? 'rood' : 'amber') : '')
-      + '<span>' + (t.berichten || 0) + ' bericht' + ((t.berichten || 0) === 1 ? '' : 'en') + '</span>'
-      + '<span>' + geleden(t.aangemaakt) + '</span></div></div>'
-      + '<div class="rechts" style="align-self:center"><span class="chip">open</span></div></div>').join('');
-    beeld.innerHTML =
-      '<details class="uitklap"' + (ticketCache.length ? '' : ' open') + '><summary>' + ico.plus + ' Nieuw ticket voor de ICT-agent<span class="plus">+</span></summary><div class="binnen">'
-      + '<form id="ticketform" class="form-rij">'
-      + '<div class="form-rij twee"><label class="veld"><span>Titel</span><input name="titel" required placeholder="Bijv. Website reageert niet na update"></label>'
-      + '<label class="veld"><span>IP-adres</span><input name="ip" placeholder="192.168.1.24" pattern="(\\d{1,3}\\.){3}\\d{1,3}"></label></div>'
-      + '<div class="form-rij twee"><label class="veld"><span>Prioriteit</span><select name="prioriteit"><option value="normaal">normaal</option><option value="laag">laag</option><option value="hoog">hoog</option><option value="kritiek">kritiek</option></select></label>'
-      + '<label class="veld"><span>Scan vooraf</span><button class="knop" type="button" id="scan-knop" style="width:100%">' + ico.span + 'IP aftasten</button></label></div>'
-      + '<label class="veld"><span>Wat moet de agent uitzoeken?</span><textarea name="omschrijving" placeholder="Beschrijf het probleem, wat je al geprobeerd hebt en wat je verwacht."></textarea></label>'
-      + '<div id="scan-uit"></div>'
-      + '<button class="knop primair" type="submit">Ticket aanmaken</button></form></div></details>'
-      + '<div class="kaart"><div class="kaart-kop"><h2>Alle tickets</h2><div class="rechts"><span style="font-size:12px;color:var(--muted2)">' + ticketCache.length + ' totaal</span></div></div>'
-      + (rijen ? '<div>' + rijen + '</div>' : leeg('Nog geen tickets. Maak het eerste aan voor je ICT-agent.')) + '</div>'
-      + '<p class="hint">De agent leest deze tickets via de agent-API (zie Instellingen) en schrijft zijn bevindingen terug in het ticket.</p>';
+    window.TICKET_CATEGORIEEN = d.categorieen || [];
+    window.TICKET_BEHANDELAARS = d.behandelaars || [];
+    window.TICKET_SLA = d.sla_label || {};
+    ticketOpenAantal = ticketCache.filter((t) => OPEN_STATUSSEN.includes(t.status)).length;
+    zetTeller('tab-tickets', ticketOpenAantal, ticketCache.some((t) => t.prioriteit === 'kritiek' && OPEN_STATUSSEN.includes(t.status)));
+    beeld.innerHTML = ticketNav()
+      + ticketFormulier()
+      + '<div class="kaart"><div class="kaart-kop"><h2>Alle tickets</h2><div class="rechts">'
+      + '<span style="font-size:12px;color:var(--muted2)">' + ticketCache.length + ' totaal · ' + ticketOpenAantal + ' open</span></div></div>'
+      + (ticketCache.length ? '<div>' + ticketCache.map(ticketRij).join('') + '</div>'
+        : leeg('Nog geen tickets. Maak het eerste aan voor je ICT-agent.')) + '</div>'
+      + '<p class="hint">De agent leest deze tickets via de agent-API (zie Instellingen) en schrijft zijn bevindingen terug in het ticket. '
+      + 'Een melding van buiten komt binnen via <a href="/melden" target="_blank" rel="noopener">/melden</a>.</p>';
+    koppelTicketNav();
     beeld.querySelectorAll('[data-ticket]').forEach((el) => el.addEventListener('click', () => { ticketDetail = el.dataset.ticket; laadTicketDetail(ticketDetail); }));
+
+    // Prioriteit meteen laten zien: impact x urgentie, zoals de server rekent.
+    const uitkomst = $('#prio-uitkomst');
+    const ververs = () => {
+      const p = prioriteitUit($('#impact').value, $('#urgentie').value);
+      uitkomst.innerHTML = 'Prioriteit wordt <b>' + esc(p) + '</b> · SLA ' + esc((window.TICKET_SLA || {})[p] || '') + '.';
+      uitkomst.style.color = p === 'kritiek' ? 'var(--red)' : p === 'hoog' ? 'var(--amber)' : 'var(--muted)';
+    };
+    $('#impact').addEventListener('change', ververs);
+    $('#urgentie').addEventListener('change', ververs);
+    ververs();
+
+    const soort = $('#ticket-soort');
+    const changeVelden = $('#change-velden');
+    soort.addEventListener('change', () => { changeVelden.style.display = soort.value === 'change' ? '' : 'none'; });
+
     // Vanuit een IP-adres: het formulier meteen openen en invullen.
     if (voorgevuld) {
       const det = beeld.querySelector('details.uitklap');
@@ -1491,33 +1715,43 @@ async function laadTickets(voorgevuld = null) {
         if (voorgevuld.titel) f.titel.value = voorgevuld.titel;
         if (voorgevuld.ip) f.ip.value = voorgevuld.ip;
         if (voorgevuld.omschrijving) f.omschrijving.value = voorgevuld.omschrijving;
+        if (voorgevuld.categorie) f.categorie.value = voorgevuld.categorie;
         f.scrollIntoView({ behavior: 'smooth', block: 'start' });
         setTimeout(() => f.titel.focus(), 120);
       }
     }
-    const scanKnop = $('#scan-knop');
-    scanKnop.addEventListener('click', async () => {
+
+    $('#scan-knop').addEventListener('click', async () => {
       const ip = $('[name=ip]').value.trim();
       if (!ip) return toast('Vul eerst een IP-adres in', true);
-      scanKnop.classList.add('bezig'); scanKnop.textContent = 'Aftasten…';
+      const knop = $('#scan-knop');
+      knop.classList.add('bezig'); knop.textContent = 'Aftasten…';
       try {
         const r = await api('/api/hosts/scan', { method: 'POST', lichaam: { ip } });
         const sc = r.scan;
         $('#scan-uit').innerHTML = '<div class="context-blok" style="margin-bottom:12px"><h4>Scan ' + esc(sc.ip) + '</h4>'
           + '<div style="font-size:12.5px;color:var(--muted)">Open poorten: ' + (sc.poorten.length ? '' : 'geen') + '</div>'
-          + '<div class="poorten">' + sc.poorten.map((p) => '<span class="chip mono groen">' + p + '</span>').join('') + '</div>'
-          + (sc.diensten.length ? '<ul style="margin-top:9px">' + sc.diensten.map((d) => '<li>poort ' + d.poort + ' — ' + esc(d.titel || d.server || d.fout || 'geen titel') + ' (' + (d.code || '—') + ')</li>').join('') + '</ul>' : '')
+          + '<div class="poorten">' + sc.poorten.map((pt) => '<span class="chip mono groen">' + pt + '</span>').join('') + '</div>'
+          + (sc.diensten.length ? '<ul style="margin-top:9px">' + sc.diensten.map((x) => '<li>poort ' + x.poort + ' — ' + esc(x.titel || x.server || x.fout || 'geen titel') + ' (' + (x.code || '—') + ')</li>').join('') + '</ul>' : '')
           + '</div>';
       } catch (err) { toast(err.message, true); }
-      finally { scanKnop.classList.remove('bezig'); scanKnop.innerHTML = ico.span + 'IP aftasten'; }
+      finally { knop.classList.remove('bezig'); knop.innerHTML = ico.span + 'IP aftasten'; }
     });
+
     $('#ticketform').addEventListener('submit', async (e) => {
       e.preventDefault();
       const lichaam = Object.fromEntries(new FormData(e.target).entries());
-      try { const r = await api('/api/tickets', { method: 'POST', lichaam }); toast('Ticket #' + r.ticket.id + ' aangemaakt'); ticketDetail = String(r.ticket.id); laadTicketDetail(ticketDetail); }
-      catch (err) { toast(err.message, true); }
+      if (lichaam.soort !== 'change') { delete lichaam.change_van; delete lichaam.change_tot; }
+      try {
+        const r = await api('/api/tickets', { method: 'POST', lichaam });
+        toast('Ticket #' + r.ticket.id + ' aangemaakt');
+        ticketDetail = String(r.ticket.id);
+        laadTicketDetail(ticketDetail);
+      } catch (err) { toast(err.message, true); }
     });
-  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+  } catch (e) {
+    beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>';
+  }
 }
 
 async function laadTicketDetail(id) {
@@ -1527,62 +1761,166 @@ async function laadTicketDetail(id) {
     const t = d.ticket;
     const ctx = d.context || {};
     const host = ctx.host || {};
-    const berichten = d.berichten.map((b) =>
-      '<div class="bericht ' + (b.rol === 'agent' ? 'agent' : '') + '"><div class="kop"><b>' + esc(b.auteur) + '</b>'
-      + chip(b.rol === 'agent' ? 'ICT-agent' : 'Tom', b.rol === 'agent' ? 'blauw' : '') + '<span>' + datum(b.op) + '</span></div>'
-      + '<div class="tekst">' + esc(b.bericht) + '</div></div>').join('');
+    const alert = d.alert;
+    const berichten = d.berichten.map((b) => {
+      const rolLabel = b.rol === 'agent' ? 'ICT-agent' : b.rol === 'klant' ? 'Klant' : b.rol === 'systeem' ? 'Monitor' : 'Tom';
+      const rolKleur = b.rol === 'agent' ? 'blauw' : b.rol === 'klant' ? 'amber' : b.rol === 'systeem' ? '' : '';
+      return '<div class="bericht ' + (b.rol === 'agent' ? 'agent' : '') + '"><div class="kop"><b>' + esc(b.auteur) + '</b>'
+        + chip(rolLabel, rolKleur) + '<span>' + datum(b.op) + '</span></div>'
+        + '<div class="tekst">' + esc(b.bericht) + '</div></div>';
+    }).join('');
+
+    const kennis = (d.kennis || []).length ? d.kennis.map((k) =>
+      '<div class="kb-kaart"><div class="kb-kop"><b>' + esc(k.titel) + '</b>'
+      + (k.categorie ? chip(k.categorie, 'blauw') : '') + (k.gebruikt ? '<span class="chip">' + k.gebruikt + '× gebruikt</span>' : '')
+      + '<span style="margin-left:auto"></span>'
+      + '<button class="knop klein stil" data-kb-gebruik="' + k.id + '">Gebruikt</button>'
+      + '<button class="knop klein stil" data-kb-vul="' + k.id + '">Invullen</button></div>'
+      + '<div class="kb-tekst">' + esc(k.oplossing) + '</div></div>').join('')
+      : '<p class="leeg" style="padding:16px">Nog geen artikelen voor deze categorie. Maak er een via de knop Naar kennisbank.</p>';
+
     const contextHtml =
       '<div class="context-blok"><h4>Technische context</h4>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
       + (t.ip ? '<span class="chip mono">' + esc(t.ip) + '</span>' : '<span class="chip">geen IP</span>')
       + (host.laatste_scan ? '<span class="chip">scan ' + geleden(host.laatste_scan) + '</span>' : '<span class="chip">nog niet gescand</span>')
       + '</div>'
-      + (host.poorten && host.poorten.length ? '<div class="poorten">' + host.poorten.map((p) => '<span class="chip mono groen">' + p + '</span>').join('') + '</div>' : '')
+      + (host.poorten && host.poorten.length ? '<div class="poorten">' + host.poorten.map((pt) => '<span class="chip mono groen">' + pt + '</span>').join('') + '</div>' : '')
       + (host.diensten && host.diensten.length ? '<ul>' + host.diensten.map((x) => '<li>poort ' + x.poort + ' — ' + esc(x.titel || x.server || x.fout || '') + ' (' + (x.code || '—') + ')</li>').join('') + '</ul>' : '')
       + (ctx.sites && ctx.sites.length ? '<div style="margin-top:9px;color:var(--muted2);font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700">Sites op dit IP</div>'
-        + '<ul>' + ctx.sites.map((s) => '<li>' + esc(s.naam) + ' — ' + (s.ok ? 'online' : 'storing') + (s.versie ? ' · ' + esc(versieLabel(s.versie)) : '') + '</li>').join('') + '</ul>' : '')
+        + '<ul>' + ctx.sites.map((x) => '<li>' + esc(x.naam) + ' — ' + (x.ok ? 'online' : 'storing') + (x.versie ? ' · ' + esc(versieLabel(x.versie)) : '') + '</li>').join('') + '</ul>' : '')
       + '</div>';
-    beeld.innerHTML =
-      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
-      + '<button class="knop klein stil" id="terug">' + ico.terug + 'Tickets</button><span style="margin-left:auto"></span>'
+
+    const alertHtml = alert ? '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Oorspronkelijke melding</h2>'
+      + '<div class="rechts">' + chip(alert.ernst || alert.soort || '', alert.ernst === 'kritiek' ? 'rood' : alert.ernst === 'hoog' ? 'amber' : '') + '</div></div>'
+      + '<div class="kaart-body"><div style="font-size:13.5px">' + esc(alert.bericht || '') + '</div>'
+      + '<div class="hint" style="margin-top:6px">' + esc(alert.soort || '') + ' · gemeten ' + datum(alert.op)
+      + (alert.bevestigd ? ' · bevestigd door ' + esc(alert.bevestigd_door || '') : '') + '</div>'
+      + (alert.notitie ? '<div class="hint" style="margin-top:4px">Notitie: ' + esc(alert.notitie) + '</div>' : '') + '</div></div>' : '';
+
+    beeld.innerHTML = ticketNav()
+      + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">'
+      + '<button class="knop klein stil" id="terug">' + ico.terug + 'Tickets</button>'
+      + '<span style="margin-left:auto"></span>'
       + (t.ip ? '<button class="knop klein" id="scan-nu">' + ico.span + 'IP opnieuw scannen</button>' : '')
       + '<button class="knop klein" id="agent-prompt">Kopieer agent-opdracht</button>'
       + '<button class="knop klein gevaar" id="verwijder-ticket">Verwijderen</button></div>'
-      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-body"><div class="ticket-kop">'
-      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="prio ' + esc(t.prioriteit) + '" style="width:4px;height:26px;border-radius:2px;background:var(--' + (t.prioriteit === 'kritiek' ? 'red' : t.prioriteit === 'hoog' ? 'amber' : 'blue') + ')"></span>'
+
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-body">'
+      + '<div class="ticket-kop"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      + '<span class="prio ' + esc(t.prioriteit) + '" style="width:4px;height:26px;border-radius:2px;background:var(--' + (t.prioriteit === 'kritiek' ? 'red' : t.prioriteit === 'hoog' ? 'amber' : 'blue') + ')"></span>'
       + '<h2>#' + t.id + ' · ' + esc(t.titel) + '</h2></div>'
-      + '<div class="sub">' + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '') + chip(t.status, t.status === 'open' ? 'amber' : t.status === 'opgelost' ? 'groen' : 'blauw')
+      + '<div class="sub">' + (t.ip ? '<span class="mono">' + esc(t.ip) + '</span>' : '')
+      + chip(t.status, STATUS_KLEUR[t.status] || '')
+      + (t.soort === 'change' ? chip('change', 'blauw') : '')
       + '<span>aangemaakt ' + datum(t.aangemaakt) + '</span><span>bijgewerkt ' + geleden(t.bijgewerkt) + '</span></div>'
-      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-      + '<select id="status" style="width:auto;min-width:170px">' + ['open', 'in behandeling', 'wacht op Tom', 'opgelost', 'gesloten'].map((s) => '<option' + (s === t.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>'
-      + '<select id="prioriteit" style="width:auto;min-width:130px">' + ['laag', 'normaal', 'hoog', 'kritiek'].map((p) => '<option' + (p === t.prioriteit ? ' selected' : '') + '>' + p + '</option>').join('') + '</select>'
-      + '</div></div>'
+      + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">'
+      + (t.categorie ? chip(t.categorie, 'blauw') : '')
+      + (t.behandelaar ? chip(t.behandelaar, '') : chip('niet toegewezen', 'amber'))
+      + (t.kanaal ? '<span class="chip">via ' + esc(t.kanaal) + '</span>' : '')
+      + (t.klant_naam ? '<span class="chip">' + esc(t.klant_naam) + '</span>' : '')
+      + (t.impact ? '<span class="chip">impact ' + esc(t.impact) + '</span>' : '')
+      + (t.urgentie ? '<span class="chip">urgentie ' + esc(t.urgentie) + '</span>' : '')
+      + '</div></div></div></div>'
+
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Behandeling en SLA</h2>'
+      + '<div class="rechts"><span class="meting-tijd">' + esc(t.sla_label || '') + '</span></div></div>'
+      + '<div class="kaart-body">'
+      + slaBlok(t)
+      + '<form id="ticket-bewerk" class="form-rij" style="margin-top:16px">'
+      + '<div class="form-rij drie">'
+      + '<label class="veld"><span>Status</span><select name="status">' + opties(d.statussen || ['open', 'in behandeling', 'wacht op Tom', 'wacht op klant', 'wacht op leverancier', 'opgelost', 'gesloten'], t.status) + '</select></label>'
+      + '<label class="veld"><span>Prioriteit</span><select name="prioriteit">' + opties(d.prioriteiten || ['laag', 'normaal', 'hoog', 'kritiek'], t.prioriteit) + '</select></label>'
+      + '<label class="veld"><span>Behandelaar</span><select name="behandelaar">' + opties(d.behandelaars || [], t.behandelaar, 'nog niet toegewezen') + '</select></label>'
+      + '</div>'
+      + '<div class="form-rij drie">'
+      + '<label class="veld"><span>Categorie</span><select name="categorie">' + opties(d.categorieen || [], t.categorie, 'geen categorie') + '</select></label>'
+      + '<label class="veld"><span>Impact</span><select name="impact">' + opties(['laag', 'normaal', 'hoog'], t.impact || 'normaal') + '</select></label>'
+      + '<label class="veld"><span>Urgentie</span><select name="urgentie">' + opties(['laag', 'normaal', 'hoog'], t.urgentie || 'normaal') + '</select></label>'
+      + '</div>'
+      + '<div class="form-rij twee">'
+      + '<label class="veld"><span>Kanaal</span><select name="kanaal">' + opties(['dashboard', 'telefoon', 'e-mail', 'meldpagina', 'monitoring'], t.kanaal || 'dashboard') + '</select></label>'
+      + '<label class="veld"><span>Sluitreden</span><input name="sluitreden" maxlength="120" value="' + esc(t.sluitreden || '') + '" placeholder="Bijv. opgelost, duplicaat, geen probleem"></label>'
+      + '</div>'
+      + '<label class="veld"><span>Oplossing</span><textarea name="oplossing" maxlength="8000" placeholder="Wat was de oorzaak en wat heb je gedaan? Dit is de basis voor de kennisbank.">' + esc(t.oplossing || '') + '</textarea></label>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Wijzigingen opslaan</button>'
+      + '<button class="knop" type="button" id="kb-van-ticket">Naar kennisbank</button></div>'
+      + '</form></div></div>'
+
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Uit de kennisbank</h2>'
+      + '<div class="rechts"><button class="knop klein stil" id="kb-alles">Alles</button></div></div>'
+      + '<div class="kaart-body" style="padding:0">' + kennis + '</div></div>'
+
+      + alertHtml
+
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Gesprek</h2></div><div class="kaart-body">'
       + (berichten ? '<div class="berichten">' + berichten + '</div>' : '<p class="leeg">Nog geen berichten.</p>')
-      + '<form id="reageer"><label class="veld"><span>Bericht toevoegen</span><textarea name="bericht" placeholder="Wat heb je zelf gezien of geprobeerd?"></textarea></label>'
-      + '<div style="display:flex;gap:8px"><button class="knop primair" type="submit">Versturen</button></div></form>'
-      + '</div></div>'
+      + '<form id="reageer"><label class="veld"><span>Bericht toevoegen</span><textarea name="bericht" maxlength="4000" placeholder="Wat heb je zelf gezien of geprobeerd?"></textarea></label>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="knop primair" type="submit">Versturen</button>'
+      + '<label class="veld" style="margin:0;display:flex;align-items:center;gap:7px;width:auto"><input type="checkbox" name="naar_klant" style="width:16px;height:16px;min-width:16px;flex:none;accent-color:var(--accent)"><span style="margin:0;text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:600">Als antwoord aan de klant</span></label>'
+      + '</div></form></div></div>'
+
       + '<div class="kaart"><div class="kaart-kop"><h2>Wat de agent ziet</h2></div><div class="kaart-body">' + contextHtml + '</div></div>';
-    $('#terug').addEventListener('click', () => { ticketDetail = null; laadTickets(); });
-    $('#status').addEventListener('change', async (e) => {
-      try { await api('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { status: e.target.value } }); toast('Status bijgewerkt'); }
-      catch (err) { toast(err.message, true); }
+
+    koppelTicketNav();
+    $('#terug').addEventListener('click', () => { ticketDetail = null; ticketWeergave = 'tickets'; laadTickets(); });
+    $('#kb-alles').addEventListener('click', () => { ticketDetail = null; ticketWeergave = 'kennisbank'; laadHuidig(); });
+
+    // Alles in één keer opslaan. De server bewaakt de statussen en de pauzeklok.
+    $('#ticket-bewerk').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const lichaam = Object.fromEntries(new FormData(e.target).entries());
+      try {
+        const r = await api('/api/tickets/' + t.id, { method: 'PATCH', lichaam });
+        toast(r.ticket.wacht ? 'Opgeslagen — de SLA-klok staat stil' : 'Opgeslagen');
+        laadTicketDetail(t.id);
+      } catch (err) { toast(err.message, true); }
     });
-    $('#prioriteit').addEventListener('change', async (e) => {
-      try { await api('/api/tickets/' + t.id, { method: 'PATCH', lichaam: { prioriteit: e.target.value } }); toast('Prioriteit bijgewerkt'); }
-      catch (err) { toast(err.message, true); }
-    });
+
     $('#reageer').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const bericht = e.target.querySelector('textarea').value.trim();
+      const veld = e.target.querySelector('textarea');
+      const bericht = veld.value.trim();
       if (!bericht) return;
-      try { await api('/api/tickets/' + t.id + '/berichten', { method: 'POST', lichaam: { bericht } }); toast('Bericht geplaatst'); laadTicketDetail(t.id); }
-      catch (err) { toast(err.message, true); }
+      const naarKlant = e.target.querySelector('[name=naar_klant]').checked;
+      try {
+        await api('/api/tickets/' + t.id + '/berichten', { method: 'POST', lichaam: { bericht, rol: naarKlant ? 'klant' : 'tom' } });
+        toast(naarKlant ? 'Antwoord aan de klant geplaatst' : 'Bericht geplaatst');
+        laadTicketDetail(t.id);
+      } catch (err) { toast(err.message, true); }
     });
+
     if ($('#scan-nu')) $('#scan-nu').addEventListener('click', async (e) => {
       e.target.classList.add('bezig');
       try { const r = await api('/api/hosts/scan', { method: 'POST', lichaam: { ip: t.ip } }); toast('Scan klaar: ' + r.scan.poorten.length + ' open poorten'); laadTicketDetail(t.id); }
       catch (err) { toast(err.message, true); e.target.classList.remove('bezig'); }
     });
+
+    // Kennisbank: tellen dat een artikel is toegepast, of de oplossing invullen.
+    beeld.querySelectorAll('[data-kb-gebruik]').forEach((b) => b.addEventListener('click', async () => {
+      try { await api('/api/kennisbank/' + b.dataset.kbGebruik + '/gebruikt', { method: 'POST', lichaam: {} }); toast('Geteld als gebruikt'); laadTicketDetail(t.id); }
+      catch (err) { toast(err.message, true); }
+    }));
+    beeld.querySelectorAll('[data-kb-vul]').forEach((b) => b.addEventListener('click', () => {
+      const artikel = (d.kennis || []).find((k) => String(k.id) === String(b.dataset.kbVul));
+      if (!artikel) return;
+      const veld = $('#ticket-bewerk [name=oplossing]');
+      veld.value = artikel.oplossing;
+      veld.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      veld.focus();
+      toast('Oplossing ingevuld — sla op om te bewaren');
+    }));
+
+    $('#kb-van-ticket').addEventListener('click', async () => {
+      const oplossing = $('#ticket-bewerk [name=oplossing]').value.trim();
+      if (!oplossing) return toast('Vul eerst een oplossing in', true);
+      try {
+        const r = await api('/api/tickets/' + t.id + '/kennisbank', { method: 'POST', lichaam: { oplossing } });
+        toast('Artikel #' + r.artikel.id + ' in de kennisbank');
+        laadTicketDetail(t.id);
+      } catch (err) { toast(err.message, true); }
+    });
+
     $('#agent-prompt').addEventListener('click', async () => {
       const opdracht = 'Je bent de ICT-agent van Werdens Media. Onderzoek ticket #' + t.id + ' (' + t.titel + ')'
         + (t.ip ? ' op IP ' + t.ip : '') + '. Haal de context op met GET /api/agent/tickets/' + t.id
@@ -1591,12 +1929,215 @@ async function laadTicketDetail(id) {
       try { await navigator.clipboard.writeText(opdracht); toast('Agent-opdracht gekopieerd'); }
       catch { toast('Kopiëren lukte niet — selecteer de tekst in de README', true); }
     });
+
     $('#verwijder-ticket').addEventListener('click', () => {
       bevestig('Ticket verwijderen', 'Ticket #' + t.id + ' en alle berichten verwijderen?', async () => {
         await api('/api/tickets/' + t.id, { method: 'DELETE' }); ticketDetail = null; toast('Ticket verwijderd'); laadTickets();
       });
     });
-  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+  } catch (e) {
+    beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>';
+  }
+}
+
+// ── rapportage ───────────────────────────────────────────────────────────────
+function kpiKaart(k, v, n, kleur) {
+  return '<div class="kpi ' + (kleur || '') + '"><div class="label">' + esc(k) + '</div><div class="waarde">' + esc(v) + '</div>'
+    + (n ? '<div class="klein">' + esc(n) + '</div>' : '') + '</div>';
+}
+function procentTekst(p) { return p === null || p === undefined ? '—' : p + '%'; }
+
+async function laadRapport() {
+  ticketWeergave = 'rapport';
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Rapportage laden…</p></div></div>';
+  try {
+    const d = await api('/api/rapport');
+    const s = d.samenvatting;
+    ticketOpenAantal = s.open;
+    const kpis = '<div class="kpis">'
+      + kpiKaart('Open', String(s.open), 'van ' + s.totaal + ' tickets', s.open ? 'waarschuwing' : 'goed')
+      + kpiKaart('Kritiek open', String(s.kritiek_open), 'hoogste prioriteit', s.kritiek_open ? 'fout' : 'goed')
+      + kpiKaart('Over de SLA', String(s.te_laat_open), 'open en al te laat', s.te_laat_open ? 'fout' : 'goed')
+      + kpiKaart('SLA oplossing', procentTekst(s.sla_oplossing_pct), 'van de afgeronde tickets', (s.sla_oplossing_pct || 0) >= 90 ? 'goed' : (s.sla_oplossing_pct || 0) >= 70 ? 'waarschuwing' : 'fout')
+      + kpiKaart('SLA eerste reactie', procentTekst(s.sla_reactie_pct), 'binnen de afspraak', (s.sla_reactie_pct || 0) >= 90 ? 'goed' : 'waarschuwing')
+      + kpiKaart('Gemiddeld opgelost', minutenTekst(s.oplossing_gem), 'over ' + s.klaar + ' afgeronde tickets', 'info')
+      + kpiKaart('Gemiddelde reactie', minutenTekst(s.eerste_reactie_gem), 'tot het eerste antwoord', 'info')
+      + kpiKaart('Klok stil', String(s.wacht), 'wacht op klant of leverancier', 'info')
+      + '</div>';
+
+    const prioriteitRijen = d.per_prioriteit.map((p) =>
+      '<tr><td><b>' + esc(p.prioriteit) + '</b><div class="hint">' + esc(p.sla_label) + '</div></td>'
+      + '<td>' + p.open + (p.te_laat ? ' <span class="chip rood">' + p.te_laat + ' te laat</span>' : '') + '</td>'
+      + '<td>' + p.klaar + '</td><td>' + p.gehaald + '</td>'
+      + '<td>' + (p.percentage === null ? '—' : '<span class="chip ' + (p.percentage >= 90 ? 'groen' : p.percentage >= 70 ? 'amber' : 'rood') + '">' + p.percentage + '%</span>') + '</td>'
+      + '<td>' + minutenTekst(p.gemiddeld_min) + '</td></tr>').join('');
+
+    const categorieRijen = d.per_categorie.length ? d.per_categorie.map((c) =>
+      '<tr><td><b>' + esc(c.categorie) + '</b></td><td>' + c.open + '</td><td>' + c.klaar + '</td><td>' + c.gehaald + '</td>'
+      + '<td>' + (c.percentage === null ? '—' : c.percentage + '%') + '</td><td>' + minutenTekst(c.gemiddeld_min) + '</td></tr>').join('')
+      : '<tr><td colspan="6" class="leeg">Nog geen tickets met een categorie.</td></tr>';
+
+    const recent = d.recent_klaar.length ? d.recent_klaar.map((t) =>
+      '<div class="rij" style="cursor:default"><div class="groot"><div class="naam"><span class="tekst">#' + t.id + ' ' + esc(t.titel) + '</span></div>'
+      + '<div class="onder">' + esc(t.categorie || 'geen categorie') + ' · ' + (t.opgelost_op ? datum(t.opgelost_op) : '') + '</div></div>'
+      + '<div class="rechts">' + chip(minutenTekst(t.verstreken), '') + chip(t.gehaald ? 'binnen SLA' : 'over SLA', t.gehaald ? 'groen' : 'rood') + '</div></div>').join('')
+      : leeg('Nog geen afgeronde tickets.');
+
+    beeld.innerHTML = ticketNav()
+      + '<div class="kaarten-kop"><div><h2>Rapportage</h2><p class="hint">Alles wat de SLA-laag bijhoudt: wat er openstaat, wat er op tijd is afgerond en waar het misgaat. De klok stopt zolang een ticket op de klant of leverancier wacht.</p></div>'
+      + '<button class="knop stil klein" id="rapport-ververs">' + ico.span + 'Verversen</button></div>'
+      + kpis
+      + '<div class="raster twee">'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Per prioriteit</h2></div><div class="kaart-body" style="padding:0"><div class="tabel-wrap"><table class="tabel"><thead><tr><th>Prioriteit</th><th>Open</th><th>Afgerond</th><th>Binnen SLA</th><th>%</th><th>Gemiddeld</th></tr></thead><tbody>' + prioriteitRijen + '</tbody></table></div></div></div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Per categorie</h2></div><div class="kaart-body" style="padding:0"><div class="tabel-wrap"><table class="tabel"><thead><tr><th>Categorie</th><th>Open</th><th>Afgerond</th><th>Binnen SLA</th><th>%</th><th>Gemiddeld</th></tr></thead><tbody>' + categorieRijen + '</tbody></table></div></div></div>'
+      + '</div>'
+      + '<div class="raster twee" style="margin-top:14px">'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Recent afgerond</h2></div><div class="kaart-body" style="padding:0"><div class="rijen">' + recent + '</div></div></div>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Kennisbank</h2><div class="rechts"><button class="knop klein" id="naar-kb">Openen</button></div></div>'
+      + '<div class="kaart-body"><div class="stat-grid">'
+      + '<div class="stat"><div class="k">Artikelen</div><div class="v klein">' + (d.kennisbank ? d.kennisbank.artikelen : 0) + '</div></div>'
+      + '<div class="stat"><div class="k">Keer toegepast</div><div class="v klein">' + (d.kennisbank ? d.kennisbank.gebruikt : 0) + '</div></div>'
+      + '<div class="stat"><div class="k">Zonder behandelaar</div><div class="v klein">' + s.zonder_eigenaar + '</div></div>'
+      + '</div>'
+      + ((d.per_behandelaar || []).length ? '<div class="hint" style="margin-top:10px">Open per behandelaar: '
+        + d.per_behandelaar.map((b) => esc(b.behandelaar) + ' ' + b.open).join(' · ') + '</div>' : '')
+      + '</div></div>'
+      + '</div>';
+
+    koppelTicketNav();
+    $('#rapport-ververs').addEventListener('click', () => laadRapport());
+    $('#naar-kb').addEventListener('click', () => { ticketWeergave = 'kennisbank'; laadHuidig(); });
+  } catch (e) {
+    beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>';
+  }
+}
+
+// ── kennisbank ───────────────────────────────────────────────────────────────
+function kennisArtikel(k) {
+  return '<div class="kb-kaart" data-kb-kaart="' + k.id + '"><div class="kb-kop"><b>' + esc(k.titel) + '</b>'
+    + (k.categorie ? chip(k.categorie, 'blauw') : chip('geen categorie', ''))
+    + (k.gebruikt ? '<span class="chip">' + k.gebruikt + '× gebruikt</span>' : '')
+    + '<span style="margin-left:auto"></span>'
+    + '<button class="knop klein stil" data-kb-gebruik="' + k.id + '">Gebruikt</button>'
+    + '<button class="knop klein stil" data-kb-bewerk="' + k.id + '">Bewerken</button>'
+    + '<button class="knop klein stil gevaar" data-kb-weg="' + k.id + '">Weg</button></div>'
+    + (k.probleem ? '<div class="kb-tekst" style="margin-bottom:6px;color:var(--muted2)">' + esc(k.probleem) + '</div>' : '')
+    + '<div class="kb-tekst">' + esc(k.oplossing) + '</div>'
+    + (k.trefwoorden ? '<div class="hint" style="margin-top:6px">' + esc(k.trefwoorden) + '</div>' : '')
+    + '</div>';
+}
+function kennisLijst(zoek) {
+  const q = String(zoek || '').trim().toLowerCase();
+  const lijst = q ? kennisCache.filter((k) => [k.titel, k.probleem, k.oplossing, k.categorie, k.trefwoorden].join(' ').toLowerCase().includes(q)) : kennisCache;
+  if (!lijst.length) return '<p class="leeg" style="padding:16px">' + (q ? 'Geen artikelen met deze zoekterm.' : 'Nog geen artikelen. Maak de eerste aan.') + '</p>';
+  return lijst.map(kennisArtikel).join('');
+}
+
+async function laadKennisbank() {
+  ticketWeergave = 'kennisbank';
+  beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="leeg">Kennisbank laden…</p></div></div>';
+  try {
+    const d = await api('/api/kennisbank');
+    kennisCache = d.artikelen || [];
+    window.TICKET_CATEGORIEEN = d.categorieen || [];
+    beeld.innerHTML = ticketNav()
+      + '<details class="uitklap"><summary>' + ico.plus + ' Nieuw artikel<span class="plus">+</span></summary><div class="binnen">'
+      + '<form id="kb-form" class="form-rij">'
+      + '<input type="hidden" name="id" value="">'
+      + '<div class="form-rij twee"><label class="veld"><span>Titel</span><input name="titel" required maxlength="160" placeholder="Bijv. Website geeft 502 na herstart"></label>'
+      + '<label class="veld"><span>Categorie</span><select name="categorie"><option value="">geen categorie</option>'
+      + (d.categorieen || []).map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') + '</select></label></div>'
+      + '<label class="veld"><span>Probleem (wanneer geldt dit)</span><textarea name="probleem" maxlength="4000" placeholder="Beschrijf het symptoom."></textarea></label>'
+      + '<label class="veld"><span>Oplossing</span><textarea name="oplossing" maxlength="8000" required placeholder="Wat werkt? Stap voor stap."></textarea></label>'
+      + '<label class="veld"><span>Trefwoorden</span><input name="trefwoorden" maxlength="200" placeholder="bijv. proxy 502 herstart"></label>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit" id="kb-opslaan">Artikel opslaan</button>'
+      + '<button class="knop" type="button" id="kb-annuleer" style="display:none">Annuleren</button></div>'
+      + '</form></div></details>'
+      + '<div class="kaart"><div class="kaart-kop"><h2>Kennisbank</h2><div class="rechts"><span class="meting-tijd">' + kennisCache.length + ' artikelen</span></div></div>'
+      + '<div class="kaart-body" style="padding:12px 16px;border-bottom:1px solid var(--line)">'
+      + '<div class="zoekbalk" style="margin:0"><span class="zoek-ico">' + ico.zoek + '</span>'
+      + '<input type="search" id="kb-zoek" placeholder="Zoek op titel, probleem of trefwoord…" value="' + esc(kbZoek) + '">'
+      + '<span class="zoek-tel" id="kb-tel"></span></div></div>'
+      + '<div id="kb-lijst">' + kennisLijst(kbZoek) + '</div></div>';
+
+    koppelTicketNav();
+    const tel = () => {
+      const q = String($('#kb-zoek').value || '').trim().toLowerCase();
+      const n = q ? kennisCache.filter((k) => [k.titel, k.probleem, k.oplossing, k.categorie, k.trefwoorden].join(' ').toLowerCase().includes(q)).length : kennisCache.length;
+      const el = $('#kb-tel');
+      if (el) el.textContent = q ? n + ' van ' + kennisCache.length : kennisCache.length + ' artikelen';
+    };
+    $('#kb-zoek').addEventListener('input', () => {
+      kbZoek = $('#kb-zoek').value;
+      $('#kb-lijst').innerHTML = kennisLijst(kbZoek);
+      koppelKennisKnoppen();
+      tel();
+    });
+    tel();
+
+    const form = $('#kb-form');
+    const annuleer = $('#kb-annuleer');
+    const opslaan = $('#kb-opslaan');
+    const leegForm = () => {
+      form.reset();
+      form.elements.id.value = '';
+      opslaan.textContent = 'Artikel opslaan';
+      annuleer.style.display = 'none';
+    };
+    annuleer.addEventListener('click', leegForm);
+
+    const bewerk = (id) => {
+      const k = kennisCache.find((x) => String(x.id) === String(id));
+      if (!k) return;
+      form.elements.id.value = k.id;
+      form.titel.value = k.titel || '';
+      form.categorie.value = k.categorie || '';
+      form.probleem.value = k.probleem || '';
+      form.oplossing.value = k.oplossing || '';
+      form.trefwoorden.value = k.trefwoorden || '';
+      opslaan.textContent = 'Wijzigingen opslaan';
+      annuleer.style.display = '';
+      const det = form.closest('details.uitklap');
+      if (det) det.open = true;
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => form.titel.focus(), 120);
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const lichaam = Object.fromEntries(new FormData(form).entries());
+      const id = lichaam.id;
+      delete lichaam.id;
+      try {
+        if (id) {
+          await api('/api/kennisbank/' + id, { method: 'PATCH', lichaam });
+          toast('Artikel bijgewerkt');
+        } else {
+          const r = await api('/api/kennisbank', { method: 'POST', lichaam });
+          toast('Artikel #' + r.artikel.id + ' opgeslagen');
+        }
+        laadKennisbank();
+      } catch (err) { toast(err.message, true); }
+    });
+
+    const koppelKennisKnoppen = () => {
+      beeld.querySelectorAll('[data-kb-gebruik]').forEach((b) => b.addEventListener('click', async () => {
+        try { await api('/api/kennisbank/' + b.dataset.kbGebruik + '/gebruikt', { method: 'POST', lichaam: {} }); toast('Geteld als gebruikt'); laadKennisbank(); }
+        catch (err) { toast(err.message, true); }
+      }));
+      beeld.querySelectorAll('[data-kb-bewerk]').forEach((b) => b.addEventListener('click', () => bewerk(b.dataset.kbBewerk)));
+      beeld.querySelectorAll('[data-kb-weg]').forEach((b) => b.addEventListener('click', () => {
+        const k = kennisCache.find((x) => String(x.id) === String(b.dataset.kbWeg));
+        bevestig('Artikel verwijderen', 'Artikel ' + (k ? k.titel : '') + ' uit de kennisbank halen?', async () => {
+          await api('/api/kennisbank/' + b.dataset.kbWeg, { method: 'DELETE' });
+          toast('Artikel verwijderd'); laadKennisbank();
+        });
+      }));
+    };
+    koppelKennisKnoppen();
+  } catch (e) {
+    beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>';
+  }
 }
 
 // ── modal ────────────────────────────────────────────────────────────────────
