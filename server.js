@@ -20,6 +20,7 @@ const hardware = require('./lib/hardware');
 const netwerk = require('./lib/netwerk');
 const libApparaten = require('./lib/apparaten');
 const eigenapps = require('./lib/eigenapps');
+const eigenappsNetwerk = require('./lib/eigenapps-netwerk');
 const grafiek = require('./lib/grafiek');
 
 // Laatste netwerkscan in het geheugen: het dashboard hoeft hem niet te bewaren,
@@ -112,6 +113,17 @@ CREATE TABLE IF NOT EXISTS eigenapps(
   nieuwste_sha TEXT NOT NULL DEFAULT '', nieuwste_datum TEXT NOT NULL DEFAULT '',
   nieuwste_bericht TEXT NOT NULL DEFAULT '', gecontroleerd TEXT NOT NULL DEFAULT '',
   bijgewerkt TEXT NOT NULL DEFAULT '', fout TEXT NOT NULL DEFAULT '', aangemaakt TEXT NOT NULL);
+`);
+
+// Apps die de netwerkscan op het LAN heeft gevonden. Los van `eigenapps`: die
+// verwijst naar een map op deze machine, deze naar een adres:poort elders.
+db.exec(`CREATE TABLE IF NOT EXISTS netapps(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, naam TEXT NOT NULL,
+  host TEXT NOT NULL, poort INTEGER NOT NULL,
+  versie TEXT NOT NULL DEFAULT '', repo TEXT NOT NULL DEFAULT '', titel TEXT NOT NULL DEFAULT '',
+  herkend TEXT NOT NULL DEFAULT '', hostnaam TEXT NOT NULL DEFAULT '',
+  laatst_gezien TEXT NOT NULL DEFAULT '', aangemaakt TEXT NOT NULL,
+  UNIQUE(host, poort));
 `);
 
 // Kolommen die later zijn bijgekomen, netjes toevoegen aan een bestaande database.
@@ -1225,6 +1237,16 @@ async function verwerk(req, res) {
 
   // openbare routes
   if (pad === '/healthz') return stuur(res, 200, 'ok', { 'content-type': 'text/plain', 'x-werdensmonitor': 'app', 'cache-control': 'no-store' });
+
+  // Deze monitor is zelf ook een app van Tom: andere monitors (of een volgende
+  // netwerkscan) herkennen hem hieraan. Geen geheimen, alleen naam/versie/repo.
+  if (pad === '/.well-known/werdens-app.json' && methode === 'GET') {
+    return json(res, 200, {
+      naam: 'Werdens Monitor',
+      versie: require('./package.json').version,
+      repo: 'Theberas04/werdens-monitor',
+    }, { 'cache-control': 'no-store' });
+  }
   if (pad === '/api/login' && methode === 'POST') {
     const body = await leesBody(req).catch(() => ({}));
     if (!wachtwoordKlopt(body.wachtwoord || '', instelling('admin_hash'))) {
@@ -2151,8 +2173,29 @@ async function verwerk(req, res) {
   // nieuwere commit heeft en kan bijwerken. Zo is één dashboard-login genoeg
   // en hoeft Tom niet bij elke app een eigen beheerderswachtwoord te hebben.
   function eigenappsLijst() {
-    const rijen = db.prepare('SELECT * FROM eigenapps ORDER BY naam').all();
+    const rijen = db.prepare('SELECT * FROM eigenapps').all();
     return rijen.map((r) => eigenapps.beeld(r.pad, r));
+  }
+
+  // Repo-URL's vergelijken onafhankelijk van https/ssh-vorm en zonder .git.
+  function repoKort(u) {
+    return String(u || '').trim().toLowerCase()
+      .replace(/^git@github\.com:/, '')
+      .replace(/^https?:\/\/(www\.)?github\.com\//, '')
+      .replace(/\.git$/, '')
+      .replace(/\/+$/, '');
+  }
+
+  // Apps die de netwerkscan heeft gevonden. `lokaal` zegt of dezelfde repo ook
+  // als map op deze machine staat (dan is bijwerken daar al mogelijk).
+  function netappsLijst() {
+    const rijen = db.prepare('SELECT * FROM netapps ORDER BY naam, host, poort').all();
+    const lokaal = new Set(db.prepare('SELECT repo FROM eigenapps').all().map((r) => repoKort(r.repo)).filter(Boolean));
+    return rijen.map((r) => ({
+      ...r,
+      lokaal: !!r.repo && lokaal.has(repoKort(r.repo)),
+      url: (eigenappsNetwerk.TLS_POORTEN.has(Number(r.poort)) ? 'https://' : 'http://') + r.host + ':' + r.poort + '/',
+    }));
   }
 
   if (pad === '/api/eigenapps' && methode === 'GET') {
@@ -2216,6 +2259,35 @@ async function verwerk(req, res) {
       }
     }
     return json(res, 200, { apps: eigenappsLijst(), uitslag });
+  }
+
+  if (pad === '/api/eigenapps/netwerk' && methode === 'GET') {
+    return json(res, 200, { apps: netappsLijst(), poorten: eigenappsNetwerk.poorten() });
+  }
+
+  if (pad === '/api/eigenapps/netwerk/scan' && methode === 'POST') {
+    const begin = Date.now();
+    try {
+      const gevonden = await eigenappsNetwerk.zoek({});
+      const zet = db.prepare(`INSERT INTO netapps(naam,host,poort,versie,repo,titel,herkend,hostnaam,laatst_gezien,aangemaakt)
+        VALUES(?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(host,poort) DO UPDATE SET naam=excluded.naam, versie=excluded.versie,
+          repo=excluded.repo, titel=excluded.titel, herkend=excluded.herkend,
+          hostnaam=excluded.hostnaam, laatst_gezien=excluded.laatst_gezien`);
+      const moment = nu();
+      for (const a of gevonden) {
+        zet.run(a.naam, a.host, Number(a.poort), a.versie || '', a.repo || '', a.titel || '',
+          a.herkend || '', a.hostnaam || '', moment, moment);
+      }
+      return json(res, 200, { duur_ms: Date.now() - begin, gevonden: gevonden.length, apps: netappsLijst() });
+    } catch (e) {
+      return fout(res, 500, 'Zoeken in het netwerk mislukt: ' + e.message);
+    }
+  }
+
+  if (delen[1] === 'eigenapps' && delen[2] === 'netwerk' && delen[3] && methode === 'DELETE') {
+    db.prepare('DELETE FROM netapps WHERE id=?').run(Number(delen[3]));
+    return json(res, 200, { ok: true, apps: netappsLijst() });
   }
 
   if (delen[1] === 'eigenapps' && delen[2]) {

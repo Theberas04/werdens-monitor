@@ -269,6 +269,40 @@ Wat de bijwerk-knop **niet** doet: een werkmap met niet-gecommitte wijzigingen
 overschrijven. Is de werkmap niet schoon, dan stopt hij met een melding en blijft
 de code staan. Zo gaan je eigen aanpassingen nooit verloren.
 
+### Zoeken in het netwerk
+
+Niet elke app draait op de machine waar de monitor staat. Met **Zoek in het
+netwerk** loopt het dashboard je LAN langs (de /24 om elk eigen adres) en kijkt
+per open poort of er een app van jou achter zit.
+
+Een app wordt herkend aan een klein bestand dat elke web-app kan serveren:
+
+```json
+/.well-known/werdens-app.json
+{
+  "naam": "VoorraadThuis",
+  "versie": "1.4.2",
+  "repo": "Theberas04/voorraadthuis"
+}
+```
+
+Ook `/werdens-app.json` en een `<meta name="werdens-app" content="naam|versie|repo">`
+in de pagina werken. Apps zonder vingerafdruk worden herkend aan hun paginatitel
+(de lijst `BEKEND` in `lib/eigenapps-netwerk.js`); routers en printers blijven
+dus buiten beeld. Deze monitor serveert zijn eigen vingerafdruk al, zodat een
+volgende monitor hem terugvindt.
+
+De afgetaste poorten staan in `APP_POORTEN` (80, 443, 3000, 5000, 8000, 8080,
+8081, 8090, 8099, 9000, enz.) en zijn te overschrijven met
+`EIGENAPPS_POORTEN=3000,8080`.
+
+Gevonden apps komen met hun adres in de lijst: **Openen** opent de app,
+**Vergeet** haalt hem uit de lijst zonder de app zelf te raken. Bijwerken kan
+alleen voor apps die als map op deze machine staan; een app elders moet daar
+zelf een `git pull` krijgen.
+
+![Gevonden op het netwerk](docs/img/software-netwerk-desktop.png)
+
 ## Wachtwoord vergeten
 
 ### Vanaf de inlogpagina, met een code via Slack

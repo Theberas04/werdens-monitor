@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.12.0">
+<meta name="version" content="1.13.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -2809,10 +2809,58 @@ function softwareKaart(a) {
     + '</span></div></div>';
 }
 
+// Apps die de netwerkscan elders op het LAN heeft gevonden.
+let netwerkCache = [];
+
+function netwerkKaart(a) {
+  const chip = a.lokaal
+    ? '<span class="chip">ook lokaal</span>'
+    : '<span class="chip groen">netwerk</span>';
+  return '<div class="srv">'
+    + '<div class="srv-top"><span class="srv-naam">' + esc(a.naam) + '</span>' + chip
+    + (a.versie ? '<span class="chip mono">' + esc(versieLabel(a.versie)) + '</span>' : '')
+    + '</div>'
+    + '<div class="srv-host">' + esc(a.host + ':' + a.poort) + (a.repo ? ' · ' + esc(a.repo) : '') + '</div>'
+    + (a.laatst_gezien ? '<div class="srv-stat" style="font-size:13px;color:var(--muted)">gezien '
+      + geleden(a.laatst_gezien) + (a.herkend === 'titel' ? ' · aan de titel herkend' : '') + '</div>' : '')
+    + '<div class="srv-voet"><span>' + esc(a.hostnaam || '') + '</span>'
+    + '<span style="display:flex;gap:6px;flex-wrap:wrap">'
+    + '<a class="knop stil klein" href="' + esc(a.url) + '" target="_blank" rel="noopener">Openen</a>'
+    + '<button class="knop stil klein" type="button" data-net="' + a.id + '">Vergeet</button>'
+    + '</span></div></div>';
+}
+
+function netwerkLijst() {
+  if (!netwerkCache.length) return '<p class="hint" style="margin:0">Nog niet gezocht. Druk op <b>Zoek in het netwerk</b>.</p>';
+  return '<div class="srv-grid">' + netwerkCache.map(netwerkKaart).join('') + '</div>';
+}
+
+function bindNetwerk() {
+  document.querySelectorAll('[data-net]').forEach((b) => b.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const id = Number(b.dataset.net);
+    const app = netwerkCache.find((a) => Number(a.id) === id);
+    if (!app) return;
+    if (!confirm('"' + app.naam + '" (' + app.host + ':' + app.poort + ') uit de lijst halen? De app zelf blijft gewoon draaien.')) return;
+    try {
+      const r = await api('/api/eigenapps/netwerk/' + id, { method: 'DELETE' });
+      netwerkCache = r.apps || [];
+      $('#netwerk-lijst').innerHTML = netwerkLijst();
+      bindNetwerk();
+    } catch (err) { toast(err.message, true); }
+  }));
+}
+
 async function laadSoftware() {
   try {
-    const d = await api('/api/eigenapps');
+    // De netwerk-lijst is een extraatje: als die route (nog) niet bestaat mag
+    // de Software-tab daar niet op stuklopen.
+    const [d, n] = await Promise.all([
+      api('/api/eigenapps'),
+      api('/api/eigenapps/netwerk').catch(() => ({ apps: [] })),
+    ]);
     softwareCache = d.apps || [];
+    netwerkCache = n.apps || [];
     const nieuw = softwareCache.filter((a) => a.nieuw).length;
     zetTeller('tab-software', nieuw, nieuw > 0);
     beeld.innerHTML =
@@ -2823,7 +2871,14 @@ async function laadSoftware() {
       + '<div class="kaart" style="margin-top:14px"><div class="kaart-body"><div style="display:flex;gap:8px;flex-wrap:wrap">'
       + '<button class="knop" id="software-controleer">Controleer op updates</button>'
       + '<button class="knop primair" id="software-werkbij">Alles bijwerken</button>'
-      + '</div><p class="hint" id="software-uitslag" style="margin:10px 0 0">Nog niet gecontroleerd.</p></div></div>';
+      + '</div><p class="hint" id="software-uitslag" style="margin:10px 0 0">Nog niet gecontroleerd.</p></div></div>'
+      + '<div class="kaart" style="margin-top:14px"><div class="kaart-body">'
+      + '<div class="kaarten-kop" style="margin:0"><div><h3 style="margin:0 0 6px">Gevonden op het netwerk</h3>'
+      + '<p class="hint" style="margin:0">Zoekt in je eigen netwerk naar je apps. Een app wordt herkend aan <code>/.well-known/werdens-app.json</code> (of een <code>werdens-app</code>-meta-tag), en anders aan de titel van de pagina. Routers en printers blijven dus buiten beeld.</p></div>'
+      + '<button class="knop" id="netwerk-zoek">Zoek in het netwerk</button></div>'
+      + '<div id="netwerk-lijst" style="margin-top:12px">' + netwerkLijst() + '</div>'
+      + '<p class="hint" id="netwerk-uitslag" style="margin:10px 0 0"></p>'
+      + '</div></div>';
     $('#software-toevoegen').addEventListener('click', () => toonSoftwareForm());
     $('#software-controleer').addEventListener('click', async () => {
       const knop = $('#software-controleer');
@@ -2853,6 +2908,24 @@ async function laadSoftware() {
       } catch (e) { toast(e.message, true); }
       finally { knop.disabled = false; knop.textContent = 'Alles bijwerken'; }
     });
+    $('#netwerk-zoek').addEventListener('click', async () => {
+      const knop = $('#netwerk-zoek');
+      const uitslag = $('#netwerk-uitslag');
+      knop.disabled = true; knop.textContent = 'Zoeken…';
+      uitslag.textContent = 'Bezig: het netwerk langs. Dit kan een halve minuut duren.';
+      try {
+        const r = await api('/api/eigenapps/netwerk/scan', { method: 'POST' });
+        netwerkCache = r.apps || [];
+        $('#netwerk-lijst').innerHTML = netwerkLijst();
+        bindNetwerk();
+        const n = Number(r.gevonden) || 0;
+        uitslag.textContent = n
+          ? n + ' app' + (n === 1 ? '' : 's') + ' gevonden in ' + Math.max(1, Math.round((Number(r.duur_ms) || 0) / 1000)) + ' s.'
+          : 'Geen eigen software gevonden. Draaien je apps wel op dit netwerk?';
+      } catch (e) { uitslag.textContent = ''; toast(e.message, true); }
+      finally { knop.disabled = false; knop.textContent = 'Zoek in het netwerk'; }
+    });
+    bindNetwerk();
     document.querySelectorAll('[data-app][data-actie]').forEach((b) => b.addEventListener('click', (e) => {
       e.preventDefault();
       const id = Number(b.dataset.app);

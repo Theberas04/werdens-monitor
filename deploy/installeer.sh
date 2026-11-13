@@ -10,6 +10,7 @@
 #   PUBLIEK_POORT   poort van de publieke meldpagina, standaard 8081; 0 = uit
 #   PUBLIEK_BIND    IP-adres waarop de meldpagina luistert, standaard 0.0.0.0
 #   EIGENAPPS_MAP   map met je eigen apps (voor de Software-tab), standaard de huis-map van de dienst
+#   EIGENAPPS_POORTEN  poorten voor de netwerkscan, komma-gescheiden (standaard 80,443,3000,...)
 #   MAP             installatiemap, standaard /opt/werdens-monitor
 set -euo pipefail
 
@@ -128,6 +129,7 @@ if [ ! -f /etc/$DIENST.env ]; then
     echo "PUBLIEK_POORT=${PUBLIEK_POORT:-8081}"
     echo "PUBLIEK_BIND=${PUBLIEK_BIND:-0.0.0.0}"
     [ -n "${EIGENAPPS_MAP:-}" ] && echo "EIGENAPPS_MAP=$EIGENAPPS_MAP"
+    [ -n "${EIGENAPPS_POORTEN:-}" ] && echo "EIGENAPPS_POORTEN=$EIGENAPPS_POORTEN"
     echo "DB_PATH=$MAP/data/monitor.db"
     [ -n "${ADMIN_PASSWORD:-}" ] && echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
     [ -n "${ADMIN_NAAM:-}" ] && echo "ADMIN_NAAM=$ADMIN_NAAM"
