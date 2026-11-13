@@ -19,6 +19,8 @@ const TABS = [
   ['websites', 'Websites'],
   ['hosts', 'IP-adressen'],
   ['servers', 'Servers'],
+  ['apparaten', 'Apparaten'],
+  ['software', 'Software'],
   ['tickets', 'Tickets'],
   ['instellingen', 'Instellingen'],
 ];

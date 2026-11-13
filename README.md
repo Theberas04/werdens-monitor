@@ -56,6 +56,11 @@ De monitor leest zijn eigen machine rechtstreeks uit `/proc`, `/sys` en `df`;
 andere servers draaien een klein agent-script dat elke minuut dezelfde cijfers
 post. Geen SSH-sleutels, geen poorten open behalve de monitor zelf.
 
+**Mijn software** — al je eigen apps op één plek: per app de versie, de repo en
+of GitHub een nieuwere commit heeft. Met één klik werk je bij (git pull + de
+dienst herstarten). Zo is één dashboard-login genoeg en hoef je niet bij elke
+app een eigen beheerderswachtwoord te hebben. Zie [Mijn software](#mijn-software).
+
 ## Welke Checkmk-functies zitten erin
 
 Geen Checkmk-code, wel hetzelfde idee: hosts met diensten, toestanden, meldingen
@@ -243,6 +248,27 @@ IP-adres.
 Wachtwoorden en sleutels staan in de database, niet in de repo; de API geeft ze
 nooit terug (wel of er een geheim is ingesteld).
 
+## Mijn software
+
+De tab **Software** toont de apps die je zelf hebt gemaakt en gebruikt. Elke app
+is een map met een git-repo en een `package.json` (de versie komt daaruit; heeft
+een app geen `package.json`, dan uit een `VERSION`-bestand of de git-tag).
+
+Per app zie je de draaiende versie, de repo, de laatste commit en of GitHub een
+nieuwere heeft. **Controleer op updates** kijkt bij alle apps tegelijk;
+**Bijwerken** doet een `git pull --ff-only` en herstart de dienst. Eén
+dashboard-login is genoeg — je hoeft niet bij elke app een eigen
+beheerderswachtwoord te hebben.
+
+Het dashboard zoekt apps in de huis-map van de dienst (standaard
+`/home/hermes`). Met `EIGENAPPS_MAP` verleg je die map, bijvoorbeeld naar
+`/opt/apps`. Bij het toevoegen kun je uit de gevonden apps kiezen; een map
+buiten de eigen map wordt geweigerd.
+
+Wat de bijwerk-knop **niet** doet: een werkmap met niet-gecommitte wijzigingen
+overschrijven. Is de werkmap niet schoon, dan stopt hij met een melding en blijft
+de code staan. Zo gaan je eigen aanpassingen nooit verloren.
+
 ## Wachtwoord vergeten
 
 ### Vanaf de inlogpagina, met een code via Slack
@@ -324,6 +350,14 @@ gebruik daarvoor dit script of **Instellingen → Wachtwoord**.
 | Ticketdetail | Publieke meldpagina |
 |---|---|
 | ![](docs/img/ticket-detail-desktop.png) | ![](docs/img/melden-desktop.png) |
+
+| Mijn software | Apparaten |
+|---|---|
+| ![](docs/img/software-desktop.png) | ![](docs/img/apparaten-desktop.png) |
+
+| Mijn software (mobiel) | Meldpagina (mobiel) |
+|---|---|
+| ![](docs/img/software-mobiel.png) | ![](docs/img/melden-mobiel.png) |
 
 | Slack-meldingen |
 |---|
@@ -581,7 +615,7 @@ open-status; de twee wacht-statussen zetten de SLA-klok stil.
 ## Ontwikkelen
 
 ```bash
-node --test test/*.test.js       # 34 tests
+node --test test/*.test.js       # 45 tests
 node scripts/seed-demo.js        # demodata in een lege database
 node scripts/record-demo.js uit/frames   # schermopname via CDP
 ```
@@ -600,13 +634,14 @@ lib/hardware.js        CPU, RAM, schijven, GPU, temperatuur en netwerk uitlezen
 lib/netwerk.js         subnetten bepalen, adressen aftasten, ARP en reverse DNS
 lib/update.js          nieuwste versie van GitHub halen, uitpakken, herstarten
 lib/apparaten.js       UniFi, TrueNAS en generieke HTTP-apparaten uitlezen
+lib/eigenapps.js       eigen apps vinden, versie lezen, controleren en bijwerken
 lib/slack.js           Slack-webhook: bericht opbouwen en versturen
 public/                index.html (één bestand), melden.html (publieke meldpagina), sw.js, manifest, iconen
 scripts/werdens-agent.js  hardware-agent voor andere servers (geen npm)
 scripts/               seed-demo.js, shoot.js, shoot-slack.js, record-demo.js
 deploy/                installeer.sh, bijwerken.sh, verwijderen.sh, reset-wachtwoord.sh
 deploy/proxmox/        maak-lxc.sh (nieuwe container), extra-ip.sh (meldpagina op een eigen IP)
-test/                  node:test, 34 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina op eigen adres)
+test/                  node:test, 45 tests (incl. SLA, prioriteitsmatrix, kennisbank, meldpagina op eigen adres, eigen software)
 docs/                  schermafbeeldingen, hero en de demo-video
 ```
 

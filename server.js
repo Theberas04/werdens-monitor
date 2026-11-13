@@ -19,6 +19,7 @@ const slack = require('./lib/slack');
 const hardware = require('./lib/hardware');
 const netwerk = require('./lib/netwerk');
 const libApparaten = require('./lib/apparaten');
+const eigenapps = require('./lib/eigenapps');
 const grafiek = require('./lib/grafiek');
 
 // Laatste netwerkscan in het geheugen: het dashboard hoeft hem niet te bewaren,
@@ -105,6 +106,12 @@ CREATE TABLE IF NOT EXISTS apparaat_metingen(
   id INTEGER PRIMARY KEY AUTOINCREMENT, apparaat_id INTEGER NOT NULL, op TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'onbekend', data TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_apparaatmetingen ON apparaat_metingen(apparaat_id, op DESC);
+CREATE TABLE IF NOT EXISTS eigenapps(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, naam TEXT NOT NULL, pad TEXT NOT NULL UNIQUE,
+  repo TEXT NOT NULL DEFAULT '', tak TEXT NOT NULL DEFAULT 'main', dienst TEXT NOT NULL DEFAULT '',
+  nieuwste_sha TEXT NOT NULL DEFAULT '', nieuwste_datum TEXT NOT NULL DEFAULT '',
+  nieuwste_bericht TEXT NOT NULL DEFAULT '', gecontroleerd TEXT NOT NULL DEFAULT '',
+  bijgewerkt TEXT NOT NULL DEFAULT '', fout TEXT NOT NULL DEFAULT '', aangemaakt TEXT NOT NULL);
 `);
 
 // Kolommen die later zijn bijgekomen, netjes toevoegen aan een bestaande database.
@@ -2137,6 +2144,95 @@ async function verwerk(req, res) {
       if (!uit.al_actueel && process.env.WM_UPDATE_RESTART !== '0') setTimeout(() => process.exit(0), 600);
       return json(res, 200, uit);
     } catch (e) { return fout(res, 400, 'Bijwerken mislukt: ' + e.message); }
+  }
+
+  // ── eigen software: al Tom's apps op één plek ───────────────────────────────
+  // Het dashboard leest de versie uit elke app-map, controleert of GitHub een
+  // nieuwere commit heeft en kan bijwerken. Zo is één dashboard-login genoeg
+  // en hoeft Tom niet bij elke app een eigen beheerderswachtwoord te hebben.
+  function eigenappsLijst() {
+    const rijen = db.prepare('SELECT * FROM eigenapps ORDER BY naam').all();
+    return rijen.map((r) => eigenapps.beeld(r.pad, r));
+  }
+
+  if (pad === '/api/eigenapps' && methode === 'GET') {
+    return json(res, 200, { apps: eigenappsLijst() });
+  }
+
+  if (pad === '/api/eigenapps/kandidaten' && methode === 'GET') {
+    const toegevoegd = new Set(db.prepare('SELECT pad FROM eigenapps').all().map((r) => r.pad));
+    return json(res, 200, {
+      kandidaten: eigenapps.kandidaten().map((k) => ({ ...k, toegevoegd: toegevoegd.has(k.pad) })),
+    });
+  }
+
+  if (pad === '/api/eigenapps' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    let appPad;
+    try { appPad = eigenapps.veiligPad(body.pad); }
+    catch (e) { return fout(res, 400, e.message); }
+    if (!eigenapps.isApp(appPad)) return fout(res, 400, 'Deze map is geen app (package.json of git ontbreekt)');
+    const bestaat = db.prepare('SELECT id FROM eigenapps WHERE pad=?').get(appPad);
+    if (bestaat) return fout(res, 409, 'Deze app staat al in de lijst');
+    const pkg = eigenapps.leesPackage(appPad);
+    const naam = tekst(body.naam, 60) || pkg.name || path.basename(appPad);
+    const tak = tekst(body.tak, 40) || eigenapps.branch(appPad) || 'main';
+    const dienst = tekst(body.dienst, 80);
+    const r = db.prepare('INSERT INTO eigenapps(naam,pad,repo,tak,dienst,aangemaakt) VALUES(?,?,?,?,?,?)')
+      .run(naam, appPad, eigenapps.repo(appPad), tak, dienst, nu());
+    return json(res, 201, { app: eigenapps.beeld(appPad, db.prepare('SELECT * FROM eigenapps WHERE id=?').get(r.lastInsertRowid)) });
+  }
+
+  if (pad === '/api/eigenapps/controleer' && methode === 'POST') {
+    const rijen = db.prepare('SELECT * FROM eigenapps').all();
+    for (const r of rijen) {
+      const tak = r.tak || 'main';
+      const nieuwste = eigenapps.nieuwste(r.pad, tak);
+      db.prepare('UPDATE eigenapps SET nieuwste_sha=?, gecontroleerd=?, fout=? WHERE id=?')
+        .run(nieuwste || r.nieuwste_sha || '', nu(), nieuwste ? '' : 'Kon GitHub niet bereiken', r.id);
+    }
+    return json(res, 200, { apps: eigenappsLijst() });
+  }
+
+  if (pad === '/api/eigenapps/uitvoeren' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => ({}));
+    const doel = Number(body && body.id) || 0;
+    const rijen = doel
+      ? db.prepare('SELECT * FROM eigenapps WHERE id=?').all(doel)
+      : db.prepare('SELECT * FROM eigenapps').all();
+    const uitslag = [];
+    for (const r of rijen) {
+      try {
+        const uit = eigenapps.werkBij(r.pad, r.tak || 'main', r.dienst || '');
+        db.prepare('UPDATE eigenapps SET bijgewerkt=?, nieuwste_sha=?, fout=? WHERE id=?')
+          .run(nu(), uit.na || '', '', r.id);
+        db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
+          .run(nu(), 'bijgewerkt', '', r.naam + ' bijgewerkt naar ' + String(uit.na || '').slice(0, 7));
+        uitslag.push({ id: r.id, naam: r.naam, ok: true, ...uit });
+      } catch (e) {
+        db.prepare('UPDATE eigenapps SET fout=? WHERE id=?').run(e.message, r.id);
+        uitslag.push({ id: r.id, naam: r.naam, ok: false, fout: e.message });
+      }
+    }
+    return json(res, 200, { apps: eigenappsLijst(), uitslag });
+  }
+
+  if (delen[1] === 'eigenapps' && delen[2]) {
+    const rij = db.prepare('SELECT * FROM eigenapps WHERE id=?').get(delen[2]);
+    if (!rij) return fout(res, 404, 'App niet gevonden');
+    if (methode === 'DELETE') {
+      db.prepare('DELETE FROM eigenapps WHERE id=?').run(rij.id);
+      return json(res, 200, { ok: true });
+    }
+    if (methode === 'PATCH') {
+      const body = await leesBody(req).catch(() => null);
+      if (!body) return fout(res, 400, 'Ongeldige JSON');
+      const naam = body.naam !== undefined ? tekst(body.naam, 60) : rij.naam;
+      const dienst = body.dienst !== undefined ? tekst(body.dienst, 80) : rij.dienst;
+      db.prepare('UPDATE eigenapps SET naam=?, dienst=? WHERE id=?').run(naam || rij.naam, dienst, rij.id);
+      return json(res, 200, { app: eigenapps.beeld(rij.pad, db.prepare('SELECT * FROM eigenapps WHERE id=?').get(rij.id)) });
+    }
   }
 
   // Testbericht: laat meteen zien of de webhook werkt, zonder te wachten op een

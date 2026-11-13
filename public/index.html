@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.11.0">
+<meta name="version" content="1.12.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -305,7 +305,7 @@ details.uitklap .binnen{padding:16px}
 
 /* ── mobiel ── */
 @media(max-width:760px){
-  #app{padding:0 12px 80px}
+  #app{padding:0 12px calc(200px + env(safe-area-inset-bottom))}
   header.kop{padding:12px 0 10px;gap:10px}
   .merk .sub{display:none}
   .merk .naam{font-size:15px}
@@ -562,6 +562,16 @@ details.uitklap[open]>summary{border-color:var(--line)}
 .tokenvak{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);
   font-size:12px;color:var(--txt);word-break:break-all}
 @media(max-width:760px){.srv-grid{grid-template-columns:minmax(0,1fr)}.srv-tabel{font-size:12px}.srv-tabel th,.srv-tabel td{padding:8px 9px}.meters{grid-template-columns:minmax(0,1fr)}}
+
+/* Mobiel: de vaste navigatie hoort écht op de onderkant te staan. De lichte
+   huisstijl zet margin-bottom:20px (mooi onder een gewone balk), maar bij
+   position:fixed schuift die marge de balk 20px omhoog — dan zweeft hij boven
+   de rand en blijft er een strook pagina onder. Hier dus marge 0 en geen
+   onderrand. */
+@media(max-width:760px){
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;margin:0;border-top:1px solid var(--line);border-bottom:0}
+  nav.tabs button.actief{border-bottom:0}
+}
 </style>
 </head>
 <body class="uit">
@@ -640,6 +650,10 @@ details.uitklap[open]>summary{border-color:var(--line)}
     <button data-tab="apparaten">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
       <span class="navfull">Apparaten</span><span class="navkort">Lab</span><span class="teller" id="tab-apparaten"></span>
+    </button>
+    <button data-tab="software">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M13 5l-2 14"/></svg>
+      <span class="navfull">Software</span><span class="navkort">Apps</span><span class="teller" id="tab-software"></span>
     </button>
     <button data-tab="meldingen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 00-6 6v4l-2 3h16l-2-3V9a6 6 0 00-6-6z"/><path d="M10 20a2 2 0 004 0"/></svg>
@@ -870,6 +884,7 @@ function laadHuidig(metKracht = false) {
   else if (huidigeTab === 'hosts') hostDetail ? laadHostDetail(hostDetail) : laadHosts();
   else if (huidigeTab === 'servers') serverDetail ? laadServerDetail(serverDetail) : laadServers();
   else if (huidigeTab === 'apparaten') apparaatDetail ? laadApparaatDetail(apparaatDetail) : laadApparaten();
+  else if (huidigeTab === 'software') laadSoftware();
   else if (huidigeTab === 'meldingen') laadMeldingen();
   else if (huidigeTab === 'grafieken') laadGrafieken();
   else if (huidigeTab === 'tickets') {
@@ -2766,6 +2781,148 @@ async function laadApparaten() {
       laadHuidig();
     }));
   } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+// ── eigen software ──────────────────────────────────────────────────────────
+// Al Tom's eigen apps op één plek: versie, repo, update-status en een knop om
+// bij te werken. Eén dashboard-login in plaats van een wachtwoord per app.
+let softwareCache = [];
+
+function softwareKaart(a) {
+  const st = a.nieuw
+    ? '<span class="chip rood">update</span>'
+    : (a.fout ? '<span class="chip amber">fout</span>' : '<span class="chip groen">actueel</span>');
+  const herkomst = String(a.repo || '').replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/\.git$/, '');
+  return '<div class="srv">'
+    + '<div class="srv-top"><span class="srv-naam">' + esc(a.naam) + '</span>' + st
+    + (a.versie ? '<span class="chip mono">' + esc(versieLabel(a.versie)) + '</span>' : '')
+    + '</div>'
+    + '<div class="srv-host">' + esc(herkomst || a.pad) + (a.sha ? ' · ' + esc(String(a.sha).slice(0, 7)) : '') + '</div>'
+    + (a.nieuwste_sha ? '<div class="srv-stat" style="font-size:13px;color:var(--muted)">'
+      + (a.nieuw ? 'Nieuw op GitHub: <b>' + esc(String(a.nieuwste_sha).slice(0, 7)) + '</b>' : 'Gelijk aan GitHub: ' + esc(String(a.nieuwste_sha).slice(0, 7)))
+      + (a.gecontroleerd ? ' · ' + geleden(a.gecontroleerd) : '') + '</div>' : '')
+    + (a.fout ? '<div class="fout-tekst" style="font-size:12px;margin-top:8px">' + esc(String(a.fout).slice(0, 140)) + '</div>' : '')
+    + '<div class="srv-voet"><span>' + (a.bijgewerkt ? 'bijgewerkt ' + geleden(a.bijgewerkt) : 'nog niet bijgewerkt') + '</span>'
+    + '<span style="display:flex;gap:6px;flex-wrap:wrap">'
+    + '<button class="knop stil klein" type="button" data-app="' + a.id + '" data-actie="werkbij">Bijwerken</button>'
+    + '<button class="knop stil klein" type="button" data-app="' + a.id + '" data-actie="weg">Verwijderen</button>'
+    + '</span></div></div>';
+}
+
+async function laadSoftware() {
+  try {
+    const d = await api('/api/eigenapps');
+    softwareCache = d.apps || [];
+    const nieuw = softwareCache.filter((a) => a.nieuw).length;
+    zetTeller('tab-software', nieuw, nieuw > 0);
+    beeld.innerHTML =
+      '<div class="kaarten-kop"><div><h2>Mijn software</h2><p class="hint">De apps die je zelf hebt gemaakt en gebruikt. Per app zie je welke versie er draait; met één klik controleer je of GitHub een nieuwere heeft en werk je bij. Eén dashboard-login is genoeg — je hoeft niet bij elke app een eigen beheerderswachtwoord te hebben.</p></div>'
+      + '<button class="knop primair" id="software-toevoegen">' + ico.plus + ' App toevoegen</button></div>'
+      + (softwareCache.length ? '<div class="srv-grid">' + softwareCache.map(softwareKaart).join('') + '</div>'
+        : '<div class="kaart"><div class="kaart-body">' + leeg('Nog geen apps toegevoegd. Voeg je eigen software toe via de knop hierboven.') + '</div></div>')
+      + '<div class="kaart" style="margin-top:14px"><div class="kaart-body"><div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + '<button class="knop" id="software-controleer">Controleer op updates</button>'
+      + '<button class="knop primair" id="software-werkbij">Alles bijwerken</button>'
+      + '</div><p class="hint" id="software-uitslag" style="margin:10px 0 0">Nog niet gecontroleerd.</p></div></div>';
+    $('#software-toevoegen').addEventListener('click', () => toonSoftwareForm());
+    $('#software-controleer').addEventListener('click', async () => {
+      const knop = $('#software-controleer');
+      knop.disabled = true; knop.textContent = 'Kijken…';
+      try {
+        const r = await api('/api/eigenapps/controleer', { method: 'POST' });
+        const lijst = (r.apps || []).filter((a) => a.nieuw);
+        $('#software-uitslag').innerHTML = lijst.length
+          ? '<span class="chip rood">' + lijst.length + ' update' + (lijst.length === 1 ? '' : 's') + ' beschikbaar</span> ' + lijst.map((a) => esc(a.naam)).join(', ')
+          : 'Alles is up-to-date.';
+        $('#software-werkbij').disabled = !lijst.length;
+        laadSoftware();
+      } catch (e) { toast(e.message, true); }
+      finally { knop.disabled = false; knop.textContent = 'Controleer op updates'; }
+    });
+    $('#software-werkbij').addEventListener('click', async () => {
+      if (!confirm('Alle apps bijwerken? De diensten worden daarna herstart.')) return;
+      const knop = $('#software-werkbij');
+      knop.disabled = true; knop.textContent = 'Bijwerken…';
+      try {
+        const r = await api('/api/eigenapps/uitvoeren', { method: 'POST' });
+        const ok = (r.uitslag || []).filter((x) => x.ok).length;
+        const mis = (r.uitslag || []).filter((x) => !x.ok);
+        $('#software-uitslag').innerHTML = '<b>' + ok + ' bijgewerkt</b>'
+          + (mis.length ? ' · <span style="color:var(--red)">' + mis.length + ' mislukt: ' + mis.map((x) => esc(x.naam + ': ' + x.fout)).join('; ') + '</span>' : '');
+        laadSoftware();
+      } catch (e) { toast(e.message, true); }
+      finally { knop.disabled = false; knop.textContent = 'Alles bijwerken'; }
+    });
+    document.querySelectorAll('[data-app][data-actie]').forEach((b) => b.addEventListener('click', (e) => {
+      e.preventDefault();
+      const id = Number(b.dataset.app);
+      if (b.dataset.actie === 'werkbij') werkSoftwareBij(id);
+      if (b.dataset.actie === 'weg') verwijderSoftware(id);
+    }));
+  } catch (e) { beeld.innerHTML = '<div class="kaart"><div class="kaart-body"><p class="fout-tekst">' + esc(e.message) + '</p></div></div>'; }
+}
+
+async function werkSoftwareBij(id) {
+  const app = softwareCache.find((a) => Number(a.id) === id);
+  if (!app) return;
+  if (!confirm('"' + app.naam + '" bijwerken? De dienst wordt daarna herstart.')) return;
+  try {
+    const r = await api('/api/eigenapps/uitvoeren', { method: 'POST', lichaam: { id } });
+    const u = (r.uitslag || [])[0] || {};
+    if (u.ok) toast('Bijgewerkt: ' + app.naam + (u.herstart ? ' (' + u.herstart + ')' : ''));
+    else toast('Bijwerken mislukt: ' + (u.fout || 'onbekend'), true);
+    laadSoftware();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function verwijderSoftware(id) {
+  const app = softwareCache.find((a) => Number(a.id) === id);
+  if (!app) return;
+  if (!confirm('"' + app.naam + '" uit de lijst halen? De map zelf blijft staan.')) return;
+  try { await api('/api/eigenapps/' + id, { method: 'DELETE' }); toast('Uit de lijst gehaald'); laadSoftware(); }
+  catch (e) { toast(e.message, true); }
+}
+
+function toonSoftwareForm() {
+  const m = $('#modal');
+  $('#modal-inhoud').innerHTML = '<h3 style="margin-bottom:6px">App toevoegen</h3>'
+    + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 16px">Kies een map met een eigen app: een <code>package.json</code> en een git-repo. Het dashboard leest de versie, controleert GitHub en kan bijwerken.</p>'
+    + '<form id="appform"><label class="veld"><span>Map</span><input name="pad" id="app-pad" placeholder="/home/hermes/mijn-app" required></label>'
+    + '<label class="veld"><span>Naam (optioneel)</span><input name="naam" placeholder="bijv. Mijn app"></label>'
+    + '<label class="veld"><span>Dienst (optioneel)</span><input name="dienst" placeholder="bijv. mijn-app.service"></label>'
+    + '<p class="hint" id="app-kand"></p>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap"><button type="button" class="knop" id="app-kies">Gevonden apps</button><button type="button" class="knop" id="app-annuleer">Annuleren</button><button type="submit" class="knop primair">Toevoegen</button></div></form>';
+  m.classList.add('aan');
+  const sluit = () => m.classList.remove('aan');
+  $('#app-annuleer').addEventListener('click', sluit);
+  m.addEventListener('click', (e) => { if (e.target === m) sluit(); }, { once: true });
+  $('#app-kies').addEventListener('click', async () => {
+    const vak = $('#app-kand');
+    vak.textContent = 'Zoeken…';
+    try {
+      const r = await api('/api/eigenapps/kandidaten');
+      const lijst = (r.kandidaten || []).filter((k) => !k.toegevoegd);
+      vak.innerHTML = lijst.length
+        ? 'Gevonden: ' + lijst.map((k) => '<button type="button" class="knop stil klein" data-kies="' + esc(k.pad) + '">' + esc(k.naam) + (k.versie ? ' ' + esc(versieLabel(k.versie)) : '') + '</button>').join(' ')
+        : 'Geen nieuwe apps gevonden.';
+      vak.querySelectorAll('[data-kies]').forEach((b) => b.addEventListener('click', () => {
+        $('#app-pad').value = b.dataset.kies;
+        const naamVeld = m.querySelector('input[name=naam]');
+        if (naamVeld && !naamVeld.value) naamVeld.value = b.textContent.trim().replace(/\s+v?\d[\d.]*$/, '');
+        vak.textContent = 'Gekozen: ' + b.dataset.kies;
+      }));
+    } catch (e) { vak.textContent = e.message; }
+  });
+  $('#appform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await api('/api/eigenapps', { method: 'POST', lichaam: { pad: f.get('pad'), naam: f.get('naam'), dienst: f.get('dienst') } });
+      sluit();
+      toast('App toegevoegd');
+      laadSoftware();
+    } catch (err) { toast(err.message, true); }
+  });
 }
 
 function apparaatDetails(a) {
