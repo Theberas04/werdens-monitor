@@ -75,7 +75,7 @@ is bewust niet gedaan, met de reden erbij.
 | Check-plugins (agentloos) | ja | HTTP(S), headers, TLS-vervaldatum, TCP-connect |
 | Klassieke Checkmk-agent | nee | vergt een agent per host; de scan geeft dezelfde informatie zonder installatie |
 | SNMP | nee | kan later met een eigen plugin; nu geen apparatuur in beheer |
-| Meldingen (mail/SMS) | deels | storingen in dashboard en log, plus push naar Slack via een inkomende webhook; mail/SMS nog niet |
+| Meldingen (mail/SMS) | deels | storingen én nieuwe tickets in dashboard, log en Slack via een inkomende webhook; mail/SMS nog niet |
 | Onderhoudsvensters (downtime) | ja | per IP met eindtijd en reden; host wordt niet gescand of gemeld |
 | Bevestigen (acknowledge) | ja | alert als bekend markeren met je naam |
 | Gebeurtenissenlog | ja | alert, opgelost, onderhoud, configuratiewijziging, met tijd en IP |
@@ -101,6 +101,14 @@ kanaal; met *Ook herstel melden* komt er ook bericht als iets weer werkt. Met
 Een storing wordt één keer gemeld. Blijft hij open, dan komt er niet elke
 meetronde opnieuw een bericht — pas na 20 minuten, of zodra de toestand
 verandert. Herstel gaat altijd door, ook als het kanaal even niet bereikbaar was.
+
+Ook **nieuwe tickets** komen in het kanaal: elk ticket dat je in het dashboard
+maakt, dat de agent-API aanmaakt of dat van de meldpagina of een storing komt.
+Het bericht heeft de prioriteit, titel, host, melder, de eerste regel van de
+omschrijving, de bron en een link naar het dashboard. Met het vinkje *Ook nieuwe
+tickets melden* zet je dat uit zonder de koppeling te verliezen. Een kapotte
+webhook laat het ticket nooit mislukken: het ticket wordt gewoon aangemaakt en de
+fout verschijnt als rode regel in de instellingen.
 
 Webhook maken: in Slack een app aanmaken → *Incoming Webhooks* → *Add New
 Webhook to Workspace* → kanaal kiezen → URL kopiëren. De URL is een geheim: hij
@@ -525,6 +533,14 @@ zet je de oplossing in het ticket, met **Gebruikt** houd je bij hoe vaak een
 artikel is toegepast en met **Naar kennisbank** maak je van een opgelost ticket
 in één klik een artikel. Zoeken gaat live op titel, probleem, oplossing en
 trefwoorden.
+
+**Behandelaars.** In **Instellingen → Behandelaars** beheer je de lijst met mensen
+aan wie je een ticket kunt toewijzen. Standaard staan *Tom* en *Werdens Media*
+erin. Voeg iemand toe met één naam; hij verschijnt meteen in de keuzelijst bij een
+ticket en in de rapportage per behandelaar. Verwijderen kan altijd — bestaande
+tickets houden de naam als historie, en de monitor waarschuwt hoeveel open
+tickets er nog op die naam staan. De laatste behandelaar kan niet weg. De lijst
+staat in de database, dus een herstart of update wist hem niet.
 
 **Rapportage.** Onder *Tickets → Rapportage* staat wat de SLA-laag bijhoudt: open
 en kritiek open, hoeveel open tickets al over de afspraak zijn, welk percentage

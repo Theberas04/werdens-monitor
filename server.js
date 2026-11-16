@@ -564,6 +564,19 @@ function stuurSlack(alert) {
     .catch((e) => bewaar(false, e.message));
 }
 
+// Nieuw ticket → Slack. Staat los van de storingmeldingen: die gaan over een
+// alert, deze over een ticket dat iemand (of de agent) aanmaakt. Aanzetten met
+// `slack_tickets` in de instellingen. Faalt nooit hard: een kapotte webhook mag
+// het aanmaken van een ticket niet laten mislukken.
+function meldTicketSlack(ticket, kanaal) {
+  if (!slackIngesteld()) return;
+  if (instelling('slack_tickets', '1') !== '1') return;
+  if (!ticket || !ticket.id) return;
+  slack.stuur(instelling('slack_webhook'), slack.berichtVoorTicket(ticket, { basis: publiekAdres(), kanaal }))
+    .then(() => zetInstelling('slack_laatst', nu()))
+    .catch((e) => zetInstelling('slack_laatst_fout', nu() + ' — ' + e.message));
+}
+
 function meld(ip, soort, bericht, ernst) {
   const bestaat = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND bericht=? AND opgelost=''").get(ip, soort, bericht);
   if (bestaat) return;
@@ -962,7 +975,29 @@ const SLA = {
 const SLA_LABEL = { kritiek: '1 uur / 4 uur', hoog: '2 uur / 8 uur', normaal: '4 uur / 24 uur', laag: '8 uur / 48 uur' };
 const STATUS_PAUZE = ['wacht op klant', 'wacht op leverancier'];
 const CATEGORIEEN = ['netwerk', 'server', 'website', 'hardware', 'software', 'e-mail', 'telefoon', 'overig'];
-const BEHANDELAARS = ['Tom', 'Werdens Media'];
+// Behandelaars zijn instelbaar: je voegt ze toe in Instellingen. De lijst staat
+// in de instellingen-tabel, zodat een herstart hem niet wist. De eerste twee
+// zijn de standaard, zodat een bestaande installatie gewoon blijft werken.
+const BEHANDELAARS_STANDAARD = ['Tom', 'Werdens Media'];
+function behandelaars() {
+  let lijst;
+  try { lijst = JSON.parse(instelling('behandelaars', '[]')); } catch { lijst = []; }
+  if (!Array.isArray(lijst)) lijst = [];
+  lijst = lijst.map((b) => String(b).trim()).filter(Boolean);
+  return lijst.length ? lijst : BEHANDELAARS_STANDAARD.slice();
+}
+function zetBehandelaars(lijst) {
+  const schoon = [];
+  for (const b of lijst) {
+    const naam = String(b || '').trim().slice(0, 60);
+    if (naam && !schoon.some((x) => x.toLowerCase() === naam.toLowerCase())) schoon.push(naam);
+  }
+  zetInstelling('behandelaars', JSON.stringify(schoon));
+  return schoon;
+}
+function isBehandelaar(naam) {
+  return behandelaars().some((b) => b.toLowerCase() === String(naam || '').trim().toLowerCase());
+}
 
 // TopDesk's prioriteitsmatrix: impact (hoeveel mensen raakt het) × urgentie
 // (hoe snel moet het). Hoger van beide telt zwaarder.
@@ -1092,7 +1127,7 @@ function rapport() {
     },
     per_prioriteit: perPrioriteit,
     per_categorie: categorieen,
-    per_behandelaar: BEHANDELAARS.map((b) => ({ behandelaar: b, open: open.filter((t) => t.behandelaar === b).length })).filter((b) => b.open > 0),
+    per_behandelaar: behandelaars().map((b) => ({ behandelaar: b, open: open.filter((t) => t.behandelaar === b).length })).filter((b) => b.open > 0),
     recent_klaar: klaar.slice(0, 8).map((t) => ({
       id: t.id, titel: t.titel, categorie: t.categorie || '', opgelost_op: t.opgelost_op,
       verstreken: t.sla.verstreken, gehaald: gehaald(t), prioriteit: t.prioriteit,
@@ -1451,7 +1486,7 @@ async function verwerk(req, res) {
   if (pad === '/api/tickets' && methode === 'GET') {
     return json(res, 200, {
       tickets: tickets.lijst().map(ticketBeeld), statussen: STATUSSEN, prioriteiten: PRIORITEITEN,
-      categorieen: CATEGORIEEN, behandelaars: BEHANDELAARS, sla: SLA, sla_label: SLA_LABEL,
+      categorieen: CATEGORIEEN, behandelaars: behandelaars(), sla: SLA, sla_label: SLA_LABEL,
     });
   }
   if (pad === '/api/tickets' && methode === 'POST') {
@@ -1465,13 +1500,14 @@ async function verwerk(req, res) {
     const prioriteit = body.prioriteit && PRIORITEITEN.includes(body.prioriteit)
       ? body.prioriteit : prioriteitUit(impact, urgentie);
     const categorie = CATEGORIEEN.includes(String(body.categorie || '').toLowerCase()) ? String(body.categorie).toLowerCase() : '';
-    const behandelaar = BEHANDELAARS.includes(body.behandelaar) ? body.behandelaar : '';
+    const behandelaar = isBehandelaar(body.behandelaar) ? String(body.behandelaar).trim() : '';
     const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt,
       impact,urgentie,categorie,subcategorie,behandelaar,kanaal,klant_naam,klant_email,soort)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, prioriteit, t.status, nu(), nu(),
       impact, urgentie, categorie, tekst(body.subcategorie, 60), behandelaar, tekst(body.kanaal, 40) || 'dashboard',
       tekst(body.klant_naam, 80), tekst(body.klant_email, 120), body.soort === 'change' ? 'change' : 'incident');
     const ticket = tickets.een(r.lastInsertRowid);
+    meldTicketSlack(ticket, ticket.kanaal || 'dashboard');
     // Change-ticket: meteen een onderhoudsvenster, zodat de meldingen stil zijn.
     if (ticket.soort === 'change' && ticket.ip && body.change_tot) {
       const van = tekst(body.change_van, 40) || nu();
@@ -1499,7 +1535,7 @@ async function verwerk(req, res) {
       return json(res, 200, {
         ticket: ticketBeeld(ticket), berichten: tickets.berichten(ticket.id), context: tickets.context(ticket),
         kennis, alert: alert || null,
-        statussen: STATUSSEN, prioriteiten: PRIORITEITEN, categorieen: CATEGORIEEN, behandelaars: BEHANDELAARS,
+        statussen: STATUSSEN, prioriteiten: PRIORITEITEN, categorieen: CATEGORIEEN, behandelaars: behandelaars(),
         sla_label: SLA_LABEL,
       });
     }
@@ -1522,7 +1558,7 @@ async function verwerk(req, res) {
         ['sluitreden', 'sluitreden'], ['kanaal', 'kanaal'], ['klant_naam', 'klant_naam'], ['klant_email', 'klant_email']]) {
         if (body[veld] !== undefined) { velden.push(kolom + '=?'); waarden.push(tekst(body[veld], veld === 'oplossing' ? 8000 : 120)); }
       }
-      if (body.behandelaar !== undefined && body.behandelaar && !BEHANDELAARS.includes(body.behandelaar)) {
+      if (body.behandelaar !== undefined && body.behandelaar && !isBehandelaar(body.behandelaar)) {
         return fout(res, 400, 'Onbekende behandelaar');
       }
       if (body.soort !== undefined) {
@@ -1932,7 +1968,9 @@ async function verwerk(req, res) {
         'Melding: ' + alert.soort + ' — ' + alert.bericht + ' (gemeten ' + alert.op + ', ernst ' + ernst + ')', false);
       db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
         .run(nu(), 'ticket', alert.ip, 'Ticket #' + r.lastInsertRowid + ' gemaakt van melding #' + alert.id);
-      return json(res, 201, { ticket: ticketBeeld(tickets.een(r.lastInsertRowid)) });
+      const vanAlert = tickets.een(r.lastInsertRowid);
+      meldTicketSlack(vanAlert, 'monitoring');
+      return json(res, 201, { ticket: ticketBeeld(vanAlert) });
     }
     return fout(res, 404, 'Onbekende actie');
   }
@@ -2042,6 +2080,38 @@ async function verwerk(req, res) {
     return json(res, 200, { toegevoegd, overgeslagen, aantal: toegevoegd.length });
   }
 
+  // ── behandelaars ───────────────────────────────────────────────────────────
+  // De lijst met mensen aan wie je een ticket kunt toewijzen. Toevoegen kan met
+  // één naam; verwijderen laat bestaande tickets ongemoeid (de naam blijft op
+  // het ticket staan als historie), maar hij is niet meer te kiezen.
+  if (pad === '/api/behandelaars' && methode === 'GET') {
+    return json(res, 200, { behandelaars: behandelaars() });
+  }
+  if (pad === '/api/behandelaars' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => null);
+    if (!body) return fout(res, 400, 'Ongeldige JSON');
+    const naam = tekst(body.naam, 60);
+    if (!naam) return fout(res, 400, 'Naam is verplicht');
+    const lijst = behandelaars();
+    if (lijst.some((b) => b.toLowerCase() === naam.toLowerCase())) {
+      return fout(res, 409, 'Deze behandelaar bestaat al');
+    }
+    const nieuw = zetBehandelaars([...lijst, naam]);
+    return json(res, 201, { behandelaars: nieuw, toegevoegd: naam });
+  }
+  if (pad === '/api/behandelaars' && methode === 'DELETE') {
+    const body = await leesBody(req).catch(() => null);
+    const naam = tekst(body && body.naam, 60);
+    if (!naam) return fout(res, 400, 'Naam is verplicht');
+    const lijst = behandelaars();
+    const rest = lijst.filter((b) => b.toLowerCase() !== naam.toLowerCase());
+    if (rest.length === lijst.length) return fout(res, 404, 'Behandelaar niet gevonden');
+    if (!rest.length) return fout(res, 400, 'Er moet minstens één behandelaar overblijven');
+    const open = db.prepare("SELECT COUNT(*) n FROM tickets WHERE behandelaar=? AND status NOT IN ('opgelost','gesloten')").get(naam).n;
+    const nieuw = zetBehandelaars(rest);
+    return json(res, 200, { behandelaars: nieuw, verwijderd: naam, open_tickets: open });
+  }
+
   if (pad === '/api/instellingen' && methode === 'GET') {
     return json(res, 200, {
       admin_naam: instelling('admin_naam', 'tom'),
@@ -2057,6 +2127,8 @@ async function verwerk(req, res) {
       slack_webhook: instelling('slack_webhook'),
       slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
+      slack_tickets: instelling('slack_tickets', '1') === '1',
+      behandelaars: behandelaars(),
       publieke_url: instelling('publieke_url'),
       publieke_url_actief: publiekAdres(),
       meld_url: instelling('meld_url'),
@@ -2135,6 +2207,11 @@ async function verwerk(req, res) {
     }
     if (body.slack_aan !== undefined) zetInstelling('slack_aan', body.slack_aan ? '1' : '0');
     if (body.slack_herstel !== undefined) zetInstelling('slack_herstel', body.slack_herstel ? '1' : '0');
+    if (body.slack_tickets !== undefined) zetInstelling('slack_tickets', body.slack_tickets ? '1' : '0');
+    if (body.behandelaars !== undefined) {
+      if (!Array.isArray(body.behandelaars)) return fout(res, 400, 'behandelaars moet een lijst zijn');
+      if (!zetBehandelaars(body.behandelaars).length) return fout(res, 400, 'Er moet minstens één behandelaar overblijven');
+    }
     return json(res, 200, {
       ok: true, github_token: github.token() ? 'ingesteld' : 'niet ingesteld',
       github_login: instelling('github_login'), agent_token: instelling('agent_token'),
@@ -2142,6 +2219,8 @@ async function verwerk(req, res) {
       meld_url: instelling('meld_url'), meld_url_actief: meldAdres(),
       slack_webhook: instelling('slack_webhook'), slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
+      slack_tickets: instelling('slack_tickets', '1') === '1',
+      behandelaars: behandelaars(),
     });
   }
 
@@ -2349,7 +2428,9 @@ async function agentRoutes(req, res, delen, url) {
       try { t = ticketVanBody(body); } catch (e) { return fout(res, 400, e.message); }
       const r = db.prepare(`INSERT INTO tickets(ip,titel,omschrijving,prioriteit,status,aangemaakt,bijgewerkt)
         VALUES(?,?,?,?,?,?,?)`).run(t.ip, t.titel, t.omschrijving, t.prioriteit, 'in behandeling', nu(), nu());
-      return json(res, 201, { ticket: tickets.een(r.lastInsertRowid) });
+      const nieuwTicket = tickets.een(r.lastInsertRowid);
+      meldTicketSlack(nieuwTicket, 'agent');
+      return json(res, 201, { ticket: nieuwTicket });
     }
   }
   if (delen[2] === 'tickets' && delen[3]) {
@@ -2440,14 +2521,7 @@ async function publiekeMelding(req, res) {
   }
   db.prepare('INSERT INTO gebeurtenissen(op,soort,ip,tekst) VALUES(?,?,?,?)')
     .run(nu(), 'melding', t.ip, 'Melding via de publieke pagina: ' + t.titel);
-  if (slackIngesteld()) {
-    try {
-      await slack.stuur(instelling('slack_webhook'), {
-        tekst: 'Nieuwe melding #' + r.lastInsertRowid + ': ' + t.titel + ' (prioriteit ' + prioriteit + ')',
-        blokken: [{ type: 'section', text: { type: 'mrkdwn', text: ':inbox_tray: *Nieuwe melding #' + r.lastInsertRowid + '*\n' + t.titel + '\nPrioriteit: *' + prioriteit + '*' + (t.ip ? '\nIP: ' + t.ip : '') } }],
-      });
-    } catch (e) { console.error('Slack-bericht over nieuwe melding mislukt: ' + e.message); }
-  }
+  meldTicketSlack(tickets.een(r.lastInsertRowid), 'meldpagina');
   return json(res, 201, { ok: true, ticket: { id: r.lastInsertRowid, titel: t.titel, prioriteit } });
 }
 
