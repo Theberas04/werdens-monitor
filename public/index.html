@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="mask-icon" href="/favicon.svg" color="#1d4ed8">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="version" content="1.14.0">
+<meta name="version" content="1.15.0">
 <style>
 :root{
   --bg:#070b10; --pane:#0e151d; --pane2:#111b25; --pane3:#16222e;
@@ -1857,6 +1857,14 @@ async function laadTicketDetail(id) {
       + '<label class="veld"><span>Kanaal</span><select name="kanaal">' + opties(['dashboard', 'telefoon', 'e-mail', 'meldpagina', 'monitoring'], t.kanaal || 'dashboard') + '</select></label>'
       + '<label class="veld"><span>Sluitreden</span><input name="sluitreden" maxlength="120" value="' + esc(t.sluitreden || '') + '" placeholder="Bijv. opgelost, duplicaat, geen probleem"></label>'
       + '</div>'
+      + '<div class="form-rij twee">'
+      + '<label class="veld"><span>Klantnaam</span><input name="klant_naam" maxlength="80" value="' + esc(t.klant_naam || '') + '" placeholder="Wie meldt het"></label>'
+      + '<label class="veld"><span>E-mailadres van de melder</span><input name="klant_email" type="email" maxlength="120" value="' + esc(t.klant_email || '') + '" placeholder="naam@bedrijf.nl"></label>'
+      + '</div>'
+      + (d.mail_aan && d.mail_host && d.mail_van
+        ? (t.klant_email ? '<p class="hint" style="margin:-6px 0 12px">Deze melder krijgt een e-mail zodra er iets aan dit ticket verandert.</p>'
+          : '<p class="hint" style="margin:-6px 0 12px">Vul een e-mailadres in, dan krijgt de melder bericht bij elke wijziging.</p>')
+        : '<p class="hint" style="margin:-6px 0 12px">E-mailmeldingen staan uit; zet ze aan bij Instellingen → E-mailmeldingen.</p>')
       + '<label class="veld"><span>Oplossing</span><textarea name="oplossing" maxlength="8000" placeholder="Wat was de oorzaak en wat heb je gedaan? Dit is de basis voor de kennisbank.">' + esc(t.oplossing || '') + '</textarea></label>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Wijzigingen opslaan</button>'
       + '<button class="knop" type="button" id="kb-van-ticket">Naar kennisbank</button></div>'
@@ -3273,7 +3281,8 @@ async function laadInstellingen() {
       + '<p class="hint" style="margin:-4px 0 12px">Zet je hier een eigen domein (bijvoorbeeld via Cloudflare), dan is dat het adres dat je deelt; de pagina zelf blijft op dezelfde plek draaien.</p>'
       + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 14px"><label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_aan"' + (d.slack_aan ? ' checked' : '') + '> Meldingen versturen</label>'
       + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_herstel"' + (d.slack_herstel ? ' checked' : '') + '> Ook herstel melden</label>'
-      + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_tickets"' + (d.slack_tickets ? ' checked' : '') + '> Ook nieuwe tickets melden</label></div>'
+      + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_tickets"' + (d.slack_tickets ? ' checked' : '') + '> Ook nieuwe tickets melden</label>'
+      + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="slack_updates"' + (d.slack_updates ? ' checked' : '') + '> Ook updates in een ticket melden</label></div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="knop primair" type="submit">Opslaan</button><button class="knop" type="button" id="slack-test">Testbericht</button></div></form>'
       + (d.slack_laatst ? '<p class="hint">Laatst verzonden: ' + esc(geleden(d.slack_laatst)) + '</p>' : '')
       + (d.slack_laatst_fout ? '<p class="hint" style="color:var(--red)">Laatste fout: ' + esc(d.slack_laatst_fout) + '</p>' : '')
@@ -3286,6 +3295,32 @@ async function laadInstellingen() {
       + '<form id="bhform" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:14px">'
       + '<label class="veld" style="flex:1;min-width:180px"><span>Naam toevoegen</span><input name="naam" placeholder="bijv. Kevin" maxlength="60" autocomplete="off" required></label>'
       + '<button class="knop primair" type="submit">Toevoegen</button></form>'
+      + '</div></div>'
+      + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>E-mailmeldingen</h2><span class="chip ' + (d.mail_aan && d.mail_host && d.mail_van ? 'groen' : '') + '">' + (d.mail_aan && d.mail_host && d.mail_van ? 'aan' : 'uit') + '</span></div><div class="kaart-body">'
+      + '<p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">Staat er een e-mailadres op een ticket, dan krijgt de melder bericht zodra het ticket verandert (status, prioriteit, behandelaar, oplossing of een nieuw bericht). Vul hieronder de mailserver van je provider in.</p>'
+      + '<form id="mailform">'
+      + '<label class="veld"><span>Mailserver (SMTP)</span><input name="mail_host" value="' + esc(d.mail_host || '') + '" placeholder="smtp.jouwprovider.nl" autocomplete="off" spellcheck="false"></label>'
+      + '<div style="display:flex;gap:12px;flex-wrap:wrap">'
+      + '<label class="veld" style="flex:1;min-width:120px"><span>Poort</span><input name="mail_poort" value="' + esc(d.mail_poort || '587') + '" inputmode="numeric" autocomplete="off"></label>'
+      + '<label class="veld" style="flex:2;min-width:160px"><span>Beveiliging</span><select name="mail_beveiliging">'
+      + ['<option value="starttls"' + (d.mail_beveiliging === 'starttls' ? ' selected' : '') + '>STARTTLS (poort 587)</option>',
+         '<option value="tls"' + (d.mail_beveiliging === 'tls' ? ' selected' : '') + '>TLS meteen (poort 465)</option>',
+         '<option value="geen"' + (d.mail_beveiliging === 'geen' ? ' selected' : '') + '>Geen beveiliging</option>'].join('')
+      + '</select></label></div>'
+      + '<label class="veld"><span>Gebruikersnaam</span><input name="mail_gebruiker" value="' + esc(d.mail_gebruiker || '') + '" placeholder="meestal hetzelfde als het afzenderadres" autocomplete="off" spellcheck="false"></label>'
+      + '<label class="veld"><span>Wachtwoord' + (d.mail_wachtwoord_ingesteld ? ' — er is er al een ingesteld, laat leeg om te bewaren' : '') + '</span><input name="mail_wachtwoord" type="password" autocomplete="new-password"></label>'
+      + '<label class="veld"><span>Afzenderadres</span><input name="mail_van" type="email" value="' + esc(d.mail_van || '') + '" placeholder="monitor@werdensmedia.nl" autocomplete="off" spellcheck="false"></label>'
+      + '<label class="veld"><span>Naam van de afzender</span><input name="mail_van_naam" value="' + esc(d.mail_van_naam || 'Werdens Monitor') + '" autocomplete="off"></label>'
+      + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 14px">'
+      + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="mail_aan"' + (d.mail_aan ? ' checked' : '') + '> E-mail versturen</label>'
+      + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="mail_updates"' + (d.mail_updates ? ' checked' : '') + '> Bij een update van een ticket mailen</label>'
+      + (d.mail_wachtwoord_ingesteld ? '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px"><input type="checkbox" name="mail_wachtwoord_wis"> Wachtwoord wissen</label>' : '')
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><button class="knop primair" type="submit">Opslaan</button>'
+      + '<label class="veld" style="margin:0;flex:1;min-width:180px"><span>Testen naar</span><input id="mail-test-adres" type="email" placeholder="jouw@adres.nl" autocomplete="off"></label>'
+      + '<button class="knop" type="button" id="mail-test">Testbericht</button></div></form>'
+      + (d.mail_laatst ? '<p class="hint">Laatst verzonden: ' + esc(geleden(d.mail_laatst)) + '</p>' : '')
+      + (d.mail_laatst_fout ? '<p class="hint" style="color:var(--red)">Laatste fout: ' + esc(d.mail_laatst_fout) + '</p>' : '')
       + '</div></div>'
       + '<div class="kaart" style="margin-bottom:14px"><div class="kaart-kop"><h2>Beheerder</h2></div><div class="kaart-body">'
       + '<form id="wwform" class="form-rij">'
@@ -3334,6 +3369,7 @@ async function laadInstellingen() {
           slack_aan: !!f.get('slack_aan'),
           slack_herstel: !!f.get('slack_herstel'),
           slack_tickets: !!f.get('slack_tickets'),
+          slack_updates: !!f.get('slack_updates'),
         } });
         toast('Slack-instellingen opgeslagen'); laadInstellingen();
       } catch (err) { toast(err.message, true); }
@@ -3342,6 +3378,34 @@ async function laadInstellingen() {
       const knop = $('#slack-test');
       knop.disabled = true; knop.textContent = 'Versturen…';
       try { await api('/api/slack/test', { method: 'POST' }); toast('Testbericht verstuurd'); }
+      catch (err) { toast(err.message, true); }
+      finally { knop.disabled = false; knop.textContent = 'Testbericht'; }
+    });
+    $('#mailform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        await api('/api/instellingen', { method: 'PATCH', lichaam: {
+          mail_aan: !!f.get('mail_aan'),
+          mail_updates: !!f.get('mail_updates'),
+          mail_host: f.get('mail_host') || '',
+          mail_poort: f.get('mail_poort') || '',
+          mail_beveiliging: f.get('mail_beveiliging') || 'starttls',
+          mail_gebruiker: f.get('mail_gebruiker') || '',
+          mail_van: f.get('mail_van') || '',
+          mail_van_naam: f.get('mail_van_naam') || '',
+          mail_wachtwoord: f.get('mail_wachtwoord') || '',
+          mail_wachtwoord_wis: !!f.get('mail_wachtwoord_wis'),
+        } });
+        toast('E-mailinstellingen opgeslagen'); laadInstellingen();
+      } catch (err) { toast(err.message, true); }
+    });
+    $('#mail-test').addEventListener('click', async () => {
+      const knop = $('#mail-test');
+      const naar = String(($('#mail-test-adres') || {}).value || '').trim();
+      if (!naar) { toast('Vul eerst een adres in om te testen', true); return; }
+      knop.disabled = true; knop.textContent = 'Versturen…';
+      try { await api('/api/mail/test', { method: 'POST', lichaam: { naar } }); toast('Testbericht verstuurd naar ' + naar); }
       catch (err) { toast(err.message, true); }
       finally { knop.disabled = false; knop.textContent = 'Testbericht'; }
     });

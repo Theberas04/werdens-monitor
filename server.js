@@ -16,6 +16,7 @@ const github = require('./lib/github');
 const { haalProjecten } = github;
 const update = require('./lib/update');
 const slack = require('./lib/slack');
+const mail = require('./lib/mail');
 const hardware = require('./lib/hardware');
 const netwerk = require('./lib/netwerk');
 const libApparaten = require('./lib/apparaten');
@@ -577,6 +578,54 @@ function meldTicketSlack(ticket, kanaal) {
     .catch((e) => zetInstelling('slack_laatst_fout', nu() + ' — ' + e.message));
 }
 
+// ── E-mail aan de melder ─────────────────────────────────────────────���───���──
+// De mailserver staat in de instellingen (geen env nodig). Alles staat
+// standaard uit; aanzetten met `mail_aan`. Het wachtwoord komt nooit in een
+// API-antwoord terug, alleen de vraag of er een is ingesteld.
+function mailInstellingen() {
+  return {
+    host: instelling('mail_host'),
+    poort: instelling('mail_poort', '587'),
+    beveiliging: instelling('mail_beveiliging', 'starttls'),
+    gebruiker: instelling('mail_gebruiker'),
+    wachtwoord: instelling('mail_wachtwoord'),
+    van: instelling('mail_van'),
+    vanNaam: instelling('mail_van_naam', 'Werdens Monitor'),
+  };
+}
+function mailIngesteld() {
+  const m = mailInstellingen();
+  return instelling('mail_aan') === '1' && !!m.host && !!m.van;
+}
+function mailUpdatesAan() { return instelling('mail_updates', '1') === '1'; }
+function slackUpdatesAan() { return instelling('slack_updates', '1') === '1'; }
+
+// Een update aan een ticket: Slack (als dat aanstaat) én een e-mail aan de
+// melder als er een adres op het ticket staat. Faalt nooit hard — een kapotte
+// webhook of mailserver mag het bijwerken van een ticket niet laten mislukken.
+function meldTicketUpdate(ticket, wijziging, extra = {}) {
+  if (!ticket || !ticket.id) return;
+  if (slackIngesteld() && slackUpdatesAan()) {
+    slack.stuur(instelling('slack_webhook'), slack.berichtVoorTicketUpdate(ticket, {
+      basis: publiekAdres(), wijziging, bericht: extra.bericht,
+    }))
+      .then(() => zetInstelling('slack_laatst', nu()))
+      .catch((e) => zetInstelling('slack_laatst_fout', nu() + ' — ' + e.message));
+  }
+  meldTicketMail(ticket, wijziging, extra);
+}
+
+function meldTicketMail(ticket, wijziging, extra = {}) {
+  if (extra.naarKlant === false) return;
+  if (!mailIngesteld() || !mailUpdatesAan()) return;
+  const naar = tekst(ticket.klant_email, 200);
+  if (!naar) return;
+  const bericht = mail.berichtVoorTicketUpdate(ticket, { wijziging, basis: publiekAdres() });
+  mail.verzend(mailInstellingen(), { naar, onderwerp: bericht.onderwerp, tekst: bericht.tekst, html: bericht.html })
+    .then(() => zetInstelling('mail_laatst', nu()))
+    .catch((e) => zetInstelling('mail_laatst_fout', nu() + ' — ' + e.message));
+}
+
 function meld(ip, soort, bericht, ernst) {
   const bestaat = db.prepare("SELECT id FROM alerts WHERE ip=? AND soort=? AND bericht=? AND opgelost=''").get(ip, soort, bericht);
   if (bestaat) return;
@@ -1074,6 +1123,27 @@ function ticketBeeld(t) {
   };
 }
 
+// Korte, leesbare omschrijving van wat er aan een ticket veranderd is. Gebruikt
+// voor de Slack-melding en de e-mail aan de melder; alleen velden die écht
+// anders zijn geworden komen erin.
+const VELD_LABEL = {
+  status: 'status', prioriteit: 'prioriteit', behandelaar: 'behandelaar',
+  categorie: 'categorie', oplossing: 'oplossing', klant_email: 'e-mailadres',
+  klant_naam: 'klantnaam', titel: 'titel', soort: 'soort',
+};
+function beschrijfWijziging(voor, na, body = {}) {
+  const delen = [];
+  for (const [veld, label] of Object.entries(VELD_LABEL)) {
+    if (body[veld] === undefined) continue;
+    const oud = String(voor[veld] === undefined || voor[veld] === null ? '' : voor[veld]);
+    const nieuw = String(na[veld] === undefined || na[veld] === null ? '' : na[veld]);
+    if (oud === nieuw) continue;
+    if (veld === 'oplossing') delen.push('oplossing ' + (nieuw ? 'toegevoegd' : 'gewist'));
+    else delen.push(label + ': ' + (nieuw || '—'));
+  }
+  return delen.join(', ');
+}
+
 // ── rapportage (TopDesk-achtig: SLA gehaald, openstaand, per categorie) ─────
 // De SLA wordt per ticket berekend en hier opgeteld. Alleen afgeronde tickets
 // tellen mee voor 'gehaald'; openstaande tickets tellen mee als ze al over tijd zijn.
@@ -1534,7 +1604,7 @@ async function verwerk(req, res) {
         : db.prepare('SELECT * FROM alerts WHERE ticket_id=? ORDER BY id DESC LIMIT 1').get(ticket.id);
       return json(res, 200, {
         ticket: ticketBeeld(ticket), berichten: tickets.berichten(ticket.id), context: tickets.context(ticket),
-        kennis, alert: alert || null,
+        kennis, alert: alert || null, mail_aan: instelling('mail_aan') === '1', mail_host: instelling('mail_host'), mail_van: instelling('mail_van'),
         statussen: STATUSSEN, prioriteiten: PRIORITEITEN, categorieen: CATEGORIEEN, behandelaars: behandelaars(),
         sla_label: SLA_LABEL,
       });
@@ -1588,7 +1658,13 @@ async function verwerk(req, res) {
       if (body.status !== undefined) pauzeer(ticket, body.status);
       velden.push('bijgewerkt=?'); waarden.push(nu()); waarden.push(ticket.id);
       db.prepare('UPDATE tickets SET ' + velden.join(',') + ' WHERE id=?').run(...waarden);
-      return json(res, 200, { ticket: ticketBeeld(tickets.een(ticket.id)) });
+      const bij = tickets.een(ticket.id);
+      // Alleen melden als er echt iets veranderd is: het formulier stuurt alle
+      // velden mee, dus zonder deze controle zou elke keer opslaan een bericht
+      // opleveren.
+      const wijziging = beschrijfWijziging(ticket, bij, body);
+      if (wijziging) meldTicketUpdate(bij, wijziging);
+      return json(res, 200, { ticket: ticketBeeld(bij) });
     }
     if (methode === 'POST' && delen[3] === 'berichten') {
       const body = await leesBody(req).catch(() => null);
@@ -1599,8 +1675,12 @@ async function verwerk(req, res) {
       tickets.voegBerichtToe(ticket.id, tekst(body.auteur, 60) || auteur, rol, bericht);
       if (body.status && STATUSSEN.includes(body.status)) {
         db.prepare('UPDATE tickets SET status=? WHERE id=?').run(body.status, ticket.id);
+        db.prepare('UPDATE tickets SET bijgewerkt=? WHERE id=?').run(nu(), ticket.id);
       }
-      return json(res, 201, { ticket: ticketBeeld(tickets.een(ticket.id)), berichten: tickets.berichten(ticket.id) });
+      const na = tickets.een(ticket.id);
+      meldTicketUpdate(na, 'Nieuw bericht van ' + (rol === 'agent' ? 'de AI-agent' : rol === 'klant' ? 'de melder' : 'Tom'),
+        { bericht });
+      return json(res, 201, { ticket: ticketBeeld(na), berichten: tickets.berichten(ticket.id) });
     }
     // Een opgelost ticket is de beste bron voor een kennisbankartikel.
     if (methode === 'POST' && delen[3] === 'kennisbank') {
@@ -2128,6 +2208,18 @@ async function verwerk(req, res) {
       slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
       slack_tickets: instelling('slack_tickets', '1') === '1',
+      slack_updates: slackUpdatesAan(),
+      mail_aan: instelling('mail_aan') === '1',
+      mail_host: instelling('mail_host'),
+      mail_poort: instelling('mail_poort', '587'),
+      mail_beveiliging: instelling('mail_beveiliging', 'starttls'),
+      mail_gebruiker: instelling('mail_gebruiker'),
+      mail_wachtwoord_ingesteld: !!instelling('mail_wachtwoord'),
+      mail_van: instelling('mail_van'),
+      mail_van_naam: instelling('mail_van_naam', 'Werdens Monitor'),
+      mail_updates: mailUpdatesAan(),
+      mail_laatst: instelling('mail_laatst'),
+      mail_laatst_fout: instelling('mail_laatst_fout'),
       behandelaars: behandelaars(),
       publieke_url: instelling('publieke_url'),
       publieke_url_actief: publiekAdres(),
@@ -2208,6 +2300,21 @@ async function verwerk(req, res) {
     if (body.slack_aan !== undefined) zetInstelling('slack_aan', body.slack_aan ? '1' : '0');
     if (body.slack_herstel !== undefined) zetInstelling('slack_herstel', body.slack_herstel ? '1' : '0');
     if (body.slack_tickets !== undefined) zetInstelling('slack_tickets', body.slack_tickets ? '1' : '0');
+    if (body.slack_updates !== undefined) zetInstelling('slack_updates', body.slack_updates ? '1' : '0');
+    if (body.mail_aan !== undefined) zetInstelling('mail_aan', body.mail_aan ? '1' : '0');
+    if (body.mail_updates !== undefined) zetInstelling('mail_updates', body.mail_updates ? '1' : '0');
+    for (const [veld, sleutel, max] of [['mail_host', 'mail_host', 200], ['mail_gebruiker', 'mail_gebruiker', 200],
+      ['mail_van', 'mail_van', 200], ['mail_van_naam', 'mail_van_naam', 80], ['mail_poort', 'mail_poort', 6]]) {
+      if (body[veld] !== undefined) zetInstelling(sleutel, tekst(body[veld], max));
+    }
+    if (body.mail_beveiliging !== undefined) {
+      if (!mail.SOORTEN.includes(body.mail_beveiliging)) return fout(res, 400, 'Onbekende beveiliging (kies geen, starttls of tls)');
+      zetInstelling('mail_beveiliging', body.mail_beveiliging);
+    }
+    // Het wachtwoord: alleen overschrijven als er iets staat. Leeg laten betekent
+    // 'niet gewijzigd', want de UI krijgt het wachtwoord nooit te zien.
+    if (body.mail_wachtwoord) zetInstelling('mail_wachtwoord', String(body.mail_wachtwoord).slice(0, 300));
+    if (body.mail_wachtwoord_wis === true) zetInstelling('mail_wachtwoord', '');
     if (body.behandelaars !== undefined) {
       if (!Array.isArray(body.behandelaars)) return fout(res, 400, 'behandelaars moet een lijst zijn');
       if (!zetBehandelaars(body.behandelaars).length) return fout(res, 400, 'Er moet minstens één behandelaar overblijven');
@@ -2220,6 +2327,14 @@ async function verwerk(req, res) {
       slack_webhook: instelling('slack_webhook'), slack_aan: instelling('slack_aan') === '1',
       slack_herstel: instelling('slack_herstel', '1') === '1',
       slack_tickets: instelling('slack_tickets', '1') === '1',
+      slack_updates: slackUpdatesAan(),
+      mail_aan: instelling('mail_aan') === '1',
+      mail_host: instelling('mail_host'), mail_poort: instelling('mail_poort', '587'),
+      mail_beveiliging: instelling('mail_beveiliging', 'starttls'),
+      mail_gebruiker: instelling('mail_gebruiker'),
+      mail_wachtwoord_ingesteld: !!instelling('mail_wachtwoord'),
+      mail_van: instelling('mail_van'), mail_van_naam: instelling('mail_van_naam', 'Werdens Monitor'),
+      mail_updates: mailUpdatesAan(),
       behandelaars: behandelaars(),
     });
   }
@@ -2404,6 +2519,29 @@ async function verwerk(req, res) {
     return json(res, 200, { ok: true, verzonden: nu() });
   }
 
+  // Testbericht voor de e-mailmeldingen: dezelfde weg als een echte
+  // ticketupdate, zodat een verkeerd wachtwoord meteen zichtbaar is.
+  if (pad === '/api/mail/test' && methode === 'POST') {
+    const body = await leesBody(req).catch(() => ({}));
+    const naar = tekst(body && body.naar, 200);
+    if (!naar) return fout(res, 400, 'Vul een e-mailadres in om te testen');
+    try {
+      mail.controleerInstellingen(mailInstellingen());
+    } catch (e) { return fout(res, 400, e.message); }
+    const bericht = mail.berichtVoorTicketUpdate(
+      { id: 0, titel: 'Testbericht', status: 'open', prioriteit: 'normaal' },
+      { wijziging: 'dit is een testbericht', basis: publiekAdres() });
+    try {
+      await mail.verzend(mailInstellingen(), { naar, onderwerp: 'Werdens Monitor — testbericht', tekst: bericht.tekst, html: bericht.html });
+    } catch (e) {
+      zetInstelling('mail_laatst_fout', nu() + ' — ' + e.message);
+      return fout(res, 502, e.message);
+    }
+    zetInstelling('mail_laatst', nu());
+    zetInstelling('mail_laatst_fout', '');
+    return json(res, 200, { ok: true, verzonden: nu(), naar });
+  }
+
   if (pad.startsWith('/api/')) return fout(res, 404, 'Onbekende route');
   if (methode === 'GET' || methode === 'HEAD') return statisch(req, res, pad === '/' ? '/index.html' : pad);
   return fout(res, 405, 'Methode niet toegestaan');
@@ -2446,7 +2584,10 @@ async function agentRoutes(req, res, delen, url) {
       tickets.voegBerichtToe(ticket.id, 'AI-agent', 'agent', bericht);
       if (body.status && STATUSSEN.includes(body.status)) db.prepare('UPDATE tickets SET status=? WHERE id=?').run(body.status, ticket.id);
       if (body.ai_onderzoek !== undefined) db.prepare('UPDATE tickets SET ai_onderzoek=? WHERE id=?').run(tekst(body.ai_onderzoek, 8000), ticket.id);
-      return json(res, 201, { ticket: ticketBeeld(tickets.een(ticket.id)), berichten: tickets.berichten(ticket.id) });
+      db.prepare('UPDATE tickets SET bijgewerkt=? WHERE id=?').run(nu(), ticket.id);
+      const bij = tickets.een(ticket.id);
+      meldTicketUpdate(bij, 'Nieuwe bevinding van de AI-agent', { bericht });
+      return json(res, 201, { ticket: ticketBeeld(bij), berichten: tickets.berichten(ticket.id) });
     }
     if (methode === 'PATCH' && !delen[4]) {
       const body = await leesBody(req).catch(() => null);
@@ -2454,7 +2595,9 @@ async function agentRoutes(req, res, delen, url) {
       if (body.status && !STATUSSEN.includes(body.status)) return fout(res, 400, 'Onbekende status');
       if (body.status) db.prepare('UPDATE tickets SET status=?, bijgewerkt=? WHERE id=?').run(body.status, nu(), ticket.id);
       if (body.ai_onderzoek !== undefined) db.prepare('UPDATE tickets SET ai_onderzoek=? WHERE id=?').run(tekst(body.ai_onderzoek, 8000), ticket.id);
-      return json(res, 200, { ticket: ticketBeeld(tickets.een(ticket.id)) });
+      const bij = tickets.een(ticket.id);
+      if (body.status && body.status !== ticket.status) meldTicketUpdate(bij, 'Status gezet op ' + body.status);
+      return json(res, 200, { ticket: ticketBeeld(bij) });
     }
   }
   if (delen[2] === 'scan' && methode === 'POST') {

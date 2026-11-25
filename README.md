@@ -114,6 +114,32 @@ Webhook maken: in Slack een app aanmaken → *Incoming Webhooks* → *Add New
 Webhook to Workspace* → kanaal kiezen → URL kopiëren. De URL is een geheim: hij
 staat in de database van de monitor en niet in de repo of in de omgeving.
 
+Met het vinkje *Ook updates in een ticket melden* gaat er ook een bericht naar
+het kanaal zodra er iets aan een bestaand ticket verandert: een andere status,
+prioriteit of behandelaar, een oplossing die wordt ingevuld, of een nieuw bericht
+in het gesprek. Zo weet je vanaf je telefoon dat een ticket beweegt zonder het
+dashboard te openen.
+
+## E-mailmeldingen aan de melder
+
+Staat er een e-mailadres op een ticket, dan krijgt de melder automatisch bericht
+zodra er iets aan dat ticket verandert — dezelfde momenten als de Slack-update.
+Dat werkt via de mailserver (SMTP) van je provider; er is geen extern pakket
+nodig. Vul in **Instellingen → E-mailmeldingen** de server, poort, beveiliging
+(STARTTLS op 587 of TLS meteen op 465), gebruikersnaam, wachtwoord, het
+afzenderadres en de naam in, zet *E-mail versturen* aan en test met
+**Testbericht** naar je eigen adres.
+
+- Het wachtwoord wordt nooit teruggegeven aan de browser en staat niet in de
+  repo; het staat in de database van de monitor.
+- Zonder adres op het ticket gaat er niets de deur uit; vul het adres in bij het
+  ticket (of de melder vult het op de meldpagina in) en de melder hoort vanzelf
+  van elke wijziging.
+- Een kapotte mailserver laat het bijwerken van een ticket nooit mislukken: het
+  ticket gaat gewoon door en de fout staat als rode regel in de instellingen.
+- Op een nieuwe melding of een nieuw ticket wordt nog geen mail gestuurd (dat
+  meldt de monitor wel in Slack); de mail gaat over de *updates* daarna.
+
 ## GitHub-token in de app
 
 De Projecten-tab en het bijwerken werken met de publieke GitHub-API, maar op een
